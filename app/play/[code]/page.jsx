@@ -14,6 +14,37 @@ function fmtVal(type, v) {
   }
   return String(v);
 }
+function precisionHint(type) {
+  if (type === "time") return "Podaj godzine (HH:MM)";
+  if (type === "float") return "Podaj liczbe dziesietna";
+  return "Podaj liczbe calkowita";
+}
+const PCOLORS = ["#23e0c8", "#ff2d78", "#ffd23f", "#7c5cff", "#3fa7ff", "#ff7a2d", "#00e676", "#e0e0e0"];
+
+function MiniBoard({ view, pid }) {
+  const t = view.territory;
+  if (!t) return null;
+  const players = view.players || [];
+  const cats = view.categories || [];
+  const catMap = {}; for (const c of cats) catMap[c.id] = c;
+  const colorOf = { aliens: "var(--green)" };
+  players.forEach((p, i) => { colorOf[p.id] = PCOLORS[i % PCOLORS.length]; });
+  return (
+    <div className="board" style={{ gridTemplateColumns: `repeat(${t.size}, 1fr)`, maxWidth: 360, margin: "12px auto 0" }}>
+      {t.cells.map((c) => {
+        const col = colorOf[c.owner] || "var(--line)";
+        const mine = c.owner === pid;
+        const emoji = c.owner === "aliens" ? "👽" : (players.find((p) => p.id === c.owner)?.emoji || "·");
+        return (
+          <div key={c.idx} className={"cell" + (mine ? " mine" : "")} style={{ borderColor: col }}>
+            <span className="cell-own" style={{ fontSize: 16 }}>{emoji}</span>
+            <span className="cell-cat" style={{ fontSize: 9, color: catMap[c.categoryId]?.color }}>{catMap[c.categoryId]?.name}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 export default function PlayPage() {
   const { code } = useParams();
@@ -25,6 +56,7 @@ export default function PlayPage() {
   const [submitted, setSubmitted] = useState(false);
   const [buzzPos, setBuzzPos] = useState(null);
   const [toast, setToast] = useState("");
+  const [estDone, setEstDone] = useState(false); // czy animacja szacowania sie skonczyla
 
   useEffect(() => {
     const p = localStorage.getItem(`vhsquiz:pid:${code}`);
@@ -53,6 +85,18 @@ export default function PlayPage() {
   const eligible = state && (state.answerMode === "all" || (state.eligibleIds || []).includes(pid));
   const buzzerActive = state?.answerMode === "buzzer" && state?.buzzerOpen;
   const iWonBuzz = state?.buzzerWinnerId === pid;
+  const duel = view?.territory?.duel || null;
+  const amDuelist = duel && (pid === duel.attackerId || pid === duel.defenderId);
+
+  // Po ujawnieniu finalu poprawna wartosc pokazuje sie dopiero PO animacji (~5s)
+  useEffect(() => {
+    if (fin?.revealed) {
+      setEstDone(false);
+      const id = setTimeout(() => setEstDone(true), 5200);
+      return () => clearTimeout(id);
+    }
+    setEstDone(false);
+  }, [fin?.revealed, fin?.questionId]);
 
   // Blokada przewijania, gdy buzzer aktywny (by nie przewinac strony przy nacisnieciu)
   useEffect(() => {
@@ -114,7 +158,7 @@ export default function PlayPage() {
             <span style={{ fontSize: 26 }}>{me?.emoji}</span>
             <div>
               <div style={{ fontSize: 20, lineHeight: 1 }}>{me?.name || "..."}</div>
-              <div className="mono small muted">#{code} · runda {state?.round || 0}</div>
+              <div className="mono small muted">#{code} · runda {state?.round || 0}{state?.questionNumber ? ` · pyt. ${state.questionNumber}` : ""}</div>
             </div>
           </div>
           <div style={{ textAlign: "right" }}>
@@ -154,8 +198,9 @@ export default function PlayPage() {
         {state?.phase === "territory" && !q && (
           <div className="panel center" style={{ minHeight: "40vh" }}>
             <div className="display ca" style={{ fontSize: 26, color: "var(--green)" }}>WALKA O TERYTORIUM</div>
-            <p className="muted mono">Mapa statku UFO jest na ekranie TV. Czekaj na swoj pojedynek...</p>
-            <div className="pill" style={{ marginTop: 10 }}>Twoje pola: {view.territory ? view.territory.cells.filter((c) => c.owner === pid).length : 0}</div>
+            <p className="muted mono">Czekaj na swoj pojedynek — podglad statku ponizej:</p>
+            <div className="pill" style={{ marginTop: 6 }}>Twoje pola: {view.territory ? view.territory.cells.filter((c) => c.owner === pid).length : 0}</div>
+            <MiniBoard view={view} pid={pid} />
           </div>
         )}
 
@@ -177,10 +222,16 @@ export default function PlayPage() {
               </div>
             )}
 
-            {buzzerActive && !iWonBuzz && (
+            {buzzerActive && !iWonBuzz && (!inDuel || amDuelist) && (
               <div className="center" style={{ minHeight: 260 }}>
                 <button className="buzzer" onClick={buzz}>BUZZ!</button>
                 {buzzPos && <div className="mono" style={{ marginTop: 14 }}>Twoja kolejnosc: {buzzPos}</div>}
+              </div>
+            )}
+
+            {buzzerActive && inDuel && !amDuelist && (
+              <div className="center" style={{ minHeight: 120 }}>
+                <div className="mono muted">Nie bierzesz udzialu w tym pojedynku — buzzer nieaktywny.</div>
               </div>
             )}
 
@@ -249,7 +300,7 @@ export default function PlayPage() {
             <div className="label">FINAL · SZACOWANIE</div>
             {q ? <div className="ca" style={{ fontSize: 22, lineHeight: 1.15 }}>{q.text}</div>
               : <p className="muted mono">Czekaj na pytanie finalowe...</p>}
-            {q?.unit && <div className="mono small muted">jednostka: {q.unit}</div>}
+            {q && <div className="row"><span className="pill" style={{ borderColor: "var(--cyan)", color: "var(--cyan)" }}>{precisionHint(fin?.estimateType)}</span>{q.unit && <span className="pill">jednostka: {q.unit}</span>}</div>}
 
             {!amFinalist && q && <div className="mono muted center" style={{ minHeight: 80 }}>Jestes obserwatorem finalu.</div>}
 
@@ -269,10 +320,18 @@ export default function PlayPage() {
               )
             )}
 
-            {fin?.revealed && (
+            {fin?.revealed && !estDone && (
+              <div className="center" style={{ minHeight: 80 }}>
+                <div className="display ca" style={{ color: "var(--cyan)", fontSize: 22 }}>LICZENIE...</div>
+                <p className="muted mono">Obserwuj slupki na ekranie TV.</p>
+              </div>
+            )}
+
+            {fin?.revealed && estDone && (
               <div className="panel" style={{ background: "rgba(0,0,0,0.4)" }}>
-                <div className="mono">Poprawna: <b style={{ color: "var(--amber)" }}>{fmtVal(fin.estimateType, fin.manipValue)}</b>
-                  {fin.manipulated && <span style={{ color: "var(--magenta)" }}> (Kosmiczna Manipulacja!)</span>}</div>
+                <div className="mono">Wartosc porownywana: <b style={{ color: "var(--amber)" }}>{fmtVal(fin.estimateType, fin.manipValue)}</b>
+                  {fin.manipulated && <span style={{ color: "var(--magenta)" }}> (Kosmiczna Manipulacja! 👽)</span>}</div>
+                {fin.manipulated && <div className="mono small muted">prawdziwa (niezmanipulowana): {fmtVal(fin.estimateType, fin.correctValue)}</div>}
                 {amFinalist && <div className="mono" style={{ marginTop: 6 }}>
                   Twoj szacunek: {fmtVal(fin.estimateType, fin.estimates?.[pid])}{" "}
                   {fin.winnerId === pid ? <span style={{ color: "var(--green)" }}>— wygrana!</span> : <span className="muted">— rywal byl blizej</span>}

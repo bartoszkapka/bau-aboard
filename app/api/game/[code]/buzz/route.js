@@ -15,6 +15,13 @@ export async function POST(req, { params }) {
   if (game.answerMode !== "buzzer" || !game.buzzerOpen)
     return Response.json({ error: "Buzzer zamkniety" }, { status: 409 });
 
+  // W pojedynku o terytorium buzzer dziala tylko dla atakujacego i zaatakowanego
+  const duel = game.territory && game.territory.duel;
+  if (duel && !duel.resolved) {
+    if (pid !== duel.attackerId && pid !== duel.defenderId)
+      return Response.json({ error: "Nie bierzesz udzialu w tym pojedynku" }, { status: 403 });
+  }
+
   const current = await getBuzz(code);
   if (current.includes(pid)) return Response.json({ ok: true, position: current.indexOf(pid) + 1 });
 

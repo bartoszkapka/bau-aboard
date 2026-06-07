@@ -21,7 +21,15 @@ function emptyQ() {
     ],
     correctOptionId: "a",
     correctAnswer: "",
+    estimateType: "integer",
+    correctValue: "",
+    unit: "",
   };
+}
+
+function minToTime(m) {
+  const v = ((Math.round(Number(m) || 0) % 1440) + 1440) % 1440;
+  return String(Math.floor(v / 60)).padStart(2, "0") + ":" + String(v % 60).padStart(2, "0");
 }
 
 export default function Bank({ secret, categories, questions, reload }) {
@@ -62,6 +70,9 @@ export default function Bank({ secret, categories, questions, reload }) {
         : emptyQ().options,
       correctOptionId: question.correctOptionId || "a",
       correctAnswer: question.correctAnswer || "",
+      estimateType: question.estimateType || "integer",
+      correctValue: question.correctValue != null ? question.correctValue : "",
+      unit: question.unit || "",
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -76,6 +87,9 @@ export default function Bank({ secret, categories, questions, reload }) {
       options: q.type === "closed" ? q.options.filter((o) => o.text.trim()).map((o) => ({ id: o.id, text: o.text.trim() })) : [],
       correctOptionId: q.correctOptionId,
       correctAnswer: q.correctAnswer,
+      estimateType: q.estimateType,
+      correctValue: q.correctValue,
+      unit: q.unit,
     };
     try {
       await api.post("/api/questions", payload, secret);
@@ -151,6 +165,7 @@ export default function Bank({ secret, categories, questions, reload }) {
             <div className="row" style={{ gap: 8 }}>
               <button className={`btn ${q.type === "closed" ? "btn-cyan active" : ""}`} onClick={() => setQ({ ...q, type: "closed" })}>Zamkniete</button>
               <button className={`btn ${q.type === "open" ? "btn-cyan active" : ""}`} onClick={() => setQ({ ...q, type: "open" })}>Otwarte</button>
+              <button className={`btn ${q.type === "estimate" ? "btn-cyan active" : ""}`} onClick={() => setQ({ ...q, type: "estimate" })}>Szacowanie</button>
             </div>
           </div>
         </div>
@@ -203,10 +218,35 @@ export default function Bank({ secret, categories, questions, reload }) {
               </div>
             ))}
           </div>
-        ) : (
+        ) : q.type === "open" ? (
           <div>
             <div className="label">Poprawna odpowiedz (dla hosta)</div>
             <input value={q.correctAnswer} onChange={(e) => setQ({ ...q, correctAnswer: e.target.value })} placeholder="Wzorcowa odpowiedz" />
+          </div>
+        ) : (
+          <div className="row" style={{ alignItems: "flex-end", gap: 12 }}>
+            <div>
+              <div className="label">Typ odpowiedzi</div>
+              <select value={q.estimateType} onChange={(e) => setQ({ ...q, estimateType: e.target.value })}>
+                <option value="integer">integer (liczba calkowita)</option>
+                <option value="float">float (dziesietna)</option>
+                <option value="time">time (godzina HH:MM)</option>
+              </select>
+            </div>
+            <div className="flex1">
+              <div className="label">Poprawna wartosc</div>
+              {q.estimateType === "time" ? (
+                <input type="time" value={minToTime(q.correctValue || 0)}
+                  onChange={(e) => { const [h, m] = e.target.value.split(":").map(Number); setQ({ ...q, correctValue: (h || 0) * 60 + (m || 0) }); }} />
+              ) : (
+                <input type="number" step={q.estimateType === "float" ? "any" : "1"} value={q.correctValue}
+                  onChange={(e) => setQ({ ...q, correctValue: e.target.value })} placeholder="np. 193" />
+              )}
+            </div>
+            <div>
+              <div className="label">Jednostka (opc.)</div>
+              <input style={{ width: 120 }} value={q.unit} onChange={(e) => setQ({ ...q, unit: e.target.value })} placeholder="np. lat, °C" />
+            </div>
           </div>
         )}
 
@@ -230,7 +270,7 @@ export default function Bank({ secret, categories, questions, reload }) {
             <div key={question.id} className="spread" style={{ borderBottom: "1px solid var(--line)", paddingBottom: 8 }}>
               <div className="flex1">
                 <span className="tag" style={{ marginRight: 8 }}>{catName2(question.categoryId)}</span>
-                <span className="pill" style={{ marginRight: 8 }}>{question.type === "open" ? "otwarte" : "zamkniete"}</span>
+                <span className="pill" style={{ marginRight: 8 }}>{question.type === "open" ? "otwarte" : question.type === "estimate" ? `szacowanie/${question.estimateType}` : "zamkniete"}</span>
                 {question.media && <span className="pill" style={{ marginRight: 8 }}>📎 {question.media.type}</span>}
                 <span>{question.text}</span>
               </div>

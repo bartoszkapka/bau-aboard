@@ -51,21 +51,28 @@ async function buildTerritory(game, size) {
   const [cats, qs, allPlayers] = await Promise.all([getCategories(), getQuestions(), getPlayers(game.code)]);
   const players = allPlayers.filter((p) => !p.isTV);
   const total = size * size;
-  const aliens = Math.floor(total / 2); // kosmici 50%
-  let playerCells = total - aliens;
+  let aliens = Math.floor(total / 2); // kosmici 50%
+  // gwarancja min. 1 pola na gracza — w razie potrzeby ograniczamy kosmitow
+  if (players.length > total - aliens) aliens = Math.max(0, total - players.length);
+  const playerCells = total - aliens;
 
-  const sum = players.reduce((s, p) => s + Math.max(0, p.score || 0), 0);
   const counts = players.map(() => 0);
   if (players.length) {
-    if (sum <= 0) {
-      let i = 0;
-      while (playerCells > 0) { counts[i % players.length]++; playerCells--; i++; }
-    } else {
-      const raw = players.map((p) => playerCells * Math.max(0, p.score || 0) / sum);
-      for (let i = 0; i < raw.length; i++) counts[i] = Math.floor(raw[i]);
-      let rem = playerCells - counts.reduce((a, b) => a + b, 0);
-      const order = raw.map((x, i) => ({ i, f: x - Math.floor(x) })).sort((a, b) => b.f - a.f);
-      for (let k = 0; k < rem; k++) counts[order[k % order.length].i]++;
+    const base = Math.min(players.length, playerCells);
+    for (let i = 0; i < base; i++) counts[i] = 1; // minimum 1 pole
+    let rem = playerCells - base;
+    if (rem > 0) {
+      const sum = players.reduce((s, p) => s + Math.max(0, p.score || 0), 0);
+      if (sum <= 0) {
+        let i = 0; while (rem > 0) { counts[i % players.length]++; rem--; i++; }
+      } else {
+        const raw = players.map((p) => rem * Math.max(0, p.score || 0) / sum);
+        const add = raw.map((x) => Math.floor(x));
+        const r2 = rem - add.reduce((a, b) => a + b, 0);
+        const order = raw.map((x, i) => ({ i, f: x - Math.floor(x) })).sort((a, b) => b.f - a.f);
+        for (let k = 0; k < r2; k++) add[order[k % order.length].i]++;
+        for (let i = 0; i < counts.length; i++) counts[i] += add[i];
+      }
     }
   }
 
@@ -78,11 +85,12 @@ async function buildTerritory(game, size) {
   for (let i = 0; i < aliens; i++) owners.push("aliens");
   players.forEach((p, idx) => { for (let k = 0; k < counts[idx]; k++) owners.push(p.id); });
   while (owners.length < total) owners.push("aliens");
+  const randomOwners = shuffle(owners); // pola rozlosowane losowo
 
   const cells = [];
   for (let idx = 0; idx < total; idx++) {
     const cat = availS[idx % availS.length];
-    cells.push({ idx, row: Math.floor(idx / size), col: idx % size, categoryId: cat.id, owner: owners[idx] });
+    cells.push({ idx, row: Math.floor(idx / size), col: idx % size, categoryId: cat.id, owner: randomOwners[idx] });
   }
   return { size, total, cells, duel: null };
 }
@@ -113,27 +121,24 @@ async function applyScoring(game) {
 
   const base = game.settings.pointsPerQuestion || 0;
   const bonuses = Array.isArray(game.settings.bonuses) ? game.settings.bonuses : [game.settings.bonusPoints || 0];
+  const allowSpeed = game.settings.speedBonus && eligibleSet.size > 1 && game.answerMode !== "buzzer";
   correctEntries.forEach((e, idx) => {
     const p = playerMap[e.pid];
     if (!p) return;
     let gain = base;
-    if (game.settings.speedBonus && bonuses[idx]) gain += Number(bonuses[idx]) || 0;
+    if (allowSpeed && bonuses[idx]) gain += Number(bonuses[idx]) || 0;
     p.score = (p.score || 0) + gain;
     touched.add(e.pid);
   });
 
-  // kara za bledna odpowiedz (tylko ci, ktorzy odpowiedzieli, ale zle)
+  // kara za bledna odpowiedz — TAKZE za brak odpowiedzi (kazdy uprawniony bez poprawnej)
   const penalty = Number(game.settings.wrongPenalty) || 0;
   if (penalty > 0) {
-    for (const pid of Object.keys(answers)) {
-      if (!eligibleSet.has(pid)) continue;
-      const a = answers[pid];
-      const correct = q.type === "closed" ? a.optionId && a.optionId === q.correctOptionId : a.judged === true;
-      const answered = q.type === "closed" ? !!a.optionId : (a.text != null && a.text !== "") || a.judged != null;
-      if (!correct && answered) {
-        const p = playerMap[pid];
-        if (p) { p.score = (p.score || 0) - penalty; touched.add(pid); }
-      }
+    const correctIds = new Set(correctEntries.map((e) => e.pid));
+    for (const pid of eligibleSet) {
+      if (correctIds.has(pid)) continue;
+      const p = playerMap[pid];
+      if (p) { p.score = (p.score || 0) - penalty; touched.add(pid); }
     }
   }
 
@@ -181,6 +186,7 @@ export async function POST(req, { params }) {
       if (!q) return Response.json({ error: "Nie ma pytania" }, { status: 404 });
       Object.assign(game, freshQuestionState());
       game.phase = "question";
+      game.questionNumber = (game.questionNumber || 0) + 1;
       game.currentQuestionId = q.id;
       game.selectedCategoryId = q.categoryId;
       game.answerMode = body.answerMode || "all";
@@ -313,6 +319,7 @@ export async function POST(req, { params }) {
       const q = await pickUnusedQuestion(game, cell.categoryId);
       if (!q) return Response.json({ error: "Brak dostepnych pytan" }, { status: 400 });
       Object.assign(game, freshQuestionState());
+      game.questionNumber = (game.questionNumber || 0) + 1;
       game.currentQuestionId = q.id;
       game.usedQuestionIds = Array.from(new Set([...(game.usedQuestionIds || []), q.id]));
       const mode = defenderId === "aliens" ? "aliens" : (body.mode || "all");
@@ -379,7 +386,8 @@ export async function POST(req, { params }) {
       const cnt = {};
       let aliensCells = 0;
       if (t) for (const c of t.cells) { if (c.owner === "aliens") aliensCells++; else cnt[c.owner] = (cnt[c.owner] || 0) + 1; }
-      for (const p of players) { p.score = cnt[p.id] || 0; await setPlayer(code, p); }
+      // kazde posiadane pole = 100 pkt, doliczane do dotychczasowych punktow
+      for (const p of players) { p.score = (p.score || 0) + (cnt[p.id] || 0) * 100; await setPlayer(code, p); }
       const duelIds = players.filter((p) => (cnt[p.id] || 0) > 0).map((p) => p.id);
       game.roundType = "final";
       game.round = 3;
@@ -388,6 +396,7 @@ export async function POST(req, { params }) {
       game.final = {
         duelIds, manipChance: total ? aliensCells / total : 0,
         phase: "idle", estimates: {}, submittedIds: [], revealed: false, questionId: null,
+        manipDrawn: false, manipulated: null, manipValue: null,
       };
       await clearAnswers(code); await clearBuzz(code);
       break;
@@ -397,18 +406,31 @@ export async function POST(req, { params }) {
       if (!q) return Response.json({ error: "Nie ma pytania" }, { status: 404 });
       Object.assign(game, freshQuestionState());
       game.phase = "final";
+      game.questionNumber = (game.questionNumber || 0) + 1;
       game.currentQuestionId = q.id;
       game.usedQuestionIds = Array.from(new Set([...(game.usedQuestionIds || []), q.id]));
       game.answerMode = "select";
       game.eligibleIds = game.final?.duelIds || [];
+      const estimateType = body.estimateType || q.estimateType || "integer";
+      const correctValue = Number(q.correctValue) || 0;
+      // Manipulacja losowana JESZCZE PRZED odpowiedziami
+      const manipChance = game.final?.manipChance || 0;
+      const manipulated = Math.random() < manipChance;
+      let manipValue = correctValue;
+      if (manipulated) {
+        const sign = Math.random() < 0.5 ? -1 : 1;
+        let v = correctValue * (1 + sign * 0.10);
+        if (estimateType === "integer" || estimateType === "time") v = Math.round(v);
+        else v = Math.round(v * 100) / 100;
+        manipValue = v;
+      }
       game.final = {
         ...(game.final || {}),
-        questionId: q.id,
-        estimateType: body.estimateType || q.estimateType || "integer",
-        unit: q.unit || "",
-        correctValue: Number(q.correctValue) || 0,
+        questionId: q.id, estimateType, unit: q.unit || "",
+        correctValue, manipChance,
+        manipDrawn: true, manipulated, manipValue,
         phase: "collecting", estimates: {}, submittedIds: [], revealed: false,
-        manipulated: null, manipValue: null, winnerId: null, exact: false,
+        winnerId: null, exact: false,
       };
       await clearAnswers(code);
       if (game.settings.timeLimitSec > 0)
@@ -423,16 +445,7 @@ export async function POST(req, { params }) {
       const estimates = {};
       for (const pid of ids) { const a = answers[pid]; estimates[pid] = a && a.value != null ? Number(a.value) : null; }
 
-      const manipulated = Math.random() < (f.manipChance || 0);
-      let manipValue = f.correctValue;
-      if (manipulated) {
-        const sign = Math.random() < 0.5 ? -1 : 1;
-        let v = f.correctValue * (1 + sign * 0.10);
-        if (f.estimateType === "integer" || f.estimateType === "time") v = Math.round(v);
-        else v = Math.round(v * 100) / 100;
-        manipValue = v;
-      }
-
+      const manipValue = f.manipValue != null ? f.manipValue : f.correctValue; // wylosowane wczesniej
       let best = null, bestD = Infinity;
       for (const pid of ids) {
         const v = estimates[pid];
@@ -454,8 +467,7 @@ export async function POST(req, { params }) {
         }
       }
       await Promise.all(ids.filter((pid) => pm[pid]).map((pid) => setPlayer(code, pm[pid])));
-      f.estimates = estimates; f.manipulated = manipulated; f.manipValue = manipValue;
-      f.winnerId = best; f.exact = exactAny; f.revealed = true; f.phase = "done";
+      f.estimates = estimates; f.winnerId = best; f.exact = exactAny; f.revealed = true; f.phase = "done";
       game.timer = { ...game.timer, running: false };
       break;
     }

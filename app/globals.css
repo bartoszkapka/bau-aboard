@@ -373,7 +373,8 @@ html.lock, body.lock {
 }
 .cell:hover { transform: translateY(-2px); }
 .cell .cell-cat { font-size: 11px; opacity: 0.85; line-height: 1.05; }
-.cell .cell-own { font-size: 20px; margin-bottom: 2px; }
+.cell .cell-own { font-size: 22px; margin-bottom: 2px; }
+.cell .cell-name { font-size: 14px; font-weight: bold; line-height: 1.05; margin-top: 1px; }
 .cell.aliens { border-color: var(--green); box-shadow: inset 0 0 22px rgba(0,230,118,0.25); }
 .cell.mine { border-color: var(--cyan); box-shadow: inset 0 0 22px rgba(35,224,200,0.22); }
 .cell.target { outline: 3px solid var(--amber); outline-offset: 1px; }
@@ -381,26 +382,27 @@ html.lock, body.lock {
 .cell.sel { outline: 3px solid var(--magenta); }
 
 .legend { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 12px; }
-.legend .lg { display: flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 13px; }
+.legend .lg { display: flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 17px; }
 .swatch { width: 14px; height: 14px; border-radius: 3px; display: inline-block; border: 1px solid rgba(255,255,255,0.2); }
 
-/* ----- Szacowanie: animacja slupkow ----- */
-.est-wrap { display: flex; gap: 28px; justify-content: center; align-items: flex-end; height: 320px; position: relative; padding: 0 10px; }
-.est-col { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; width: 110px; }
-.est-track { position: relative; width: 70px; height: 240px; background: rgba(255,255,255,0.05); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
-.est-bar { position: absolute; bottom: 0; left: 0; right: 0; border-radius: 0 0 6px 6px;
-  background: linear-gradient(180deg, var(--cyan), #0c8); transition: height 2.4s cubic-bezier(.2,.7,.2,1); }
-.est-bar.mag { background: linear-gradient(180deg, var(--magenta), #a0185a); }
-.est-target { position: absolute; left: -8px; right: -8px; height: 0; border-top: 3px dashed var(--amber);
-  box-shadow: 0 0 10px var(--amber); opacity: 0; transition: opacity .4s; }
+/* ----- Szacowanie: poziome slupki (animacja od zera) ----- */
+.est-wrap { display: flex; flex-direction: column; gap: 20px; align-items: stretch; padding: 6px 10px; position: relative; }
+.est-col { display: flex; flex-direction: row; align-items: center; gap: 14px; width: 100%; }
+.est-name { font-family: var(--mono); font-size: 24px; min-width: 190px; text-align: right; }
+.est-track { position: relative; flex: 1; height: 56px; background: rgba(255,255,255,0.05); border: 1px solid var(--line); border-radius: 6px; overflow: visible; }
+.est-bar { position: absolute; left: 0; top: 0; bottom: 0; width: 0; border-radius: 6px;
+  background: linear-gradient(90deg, var(--cyan), #0c8); transition: width 5s cubic-bezier(.2,.7,.2,1); }
+.est-bar.mag { background: linear-gradient(90deg, var(--magenta), #a0185a); }
+.est-target { position: absolute; top: -8px; bottom: -8px; width: 0;
+  border-left: 3px dashed var(--amber); box-shadow: 0 0 10px var(--amber); opacity: 0; transition: opacity .5s; }
 .est-target.show { opacity: 1; }
-.est-val { font-family: var(--mono); margin-top: 8px; font-size: 18px; }
-.est-name { font-family: var(--mono); font-size: 14px; margin-bottom: 6px; }
+.est-val { font-family: var(--mono); font-size: 22px; min-width: 90px; }
 
 /* ----- Kolo fortuny (Kosmiczna Manipulacja) ----- */
 .wheel-wrap { display: flex; flex-direction: column; align-items: center; gap: 12px; }
 .wheel-stage { position: relative; width: 240px; height: 240px; }
 .wheel { width: 240px; height: 240px; border-radius: 50%; border: 4px solid var(--line);
-  transition: transform 3.2s cubic-bezier(.15,.6,.1,1); }
+  transition: transform 3.4s cubic-bezier(.15,.6,.1,1); position: relative; }
+.wheel-emoji { position: absolute; font-size: 30px; transform: translate(-50%, -50%); }
 .wheel-ptr { position: absolute; top: -6px; left: 50%; transform: translateX(-50%);
   border-left: 12px solid transparent; border-right: 12px solid transparent; border-top: 22px solid var(--amber); z-index: 2; }

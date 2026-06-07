@@ -592,12 +592,27 @@ export default function GameControl({ secret, code, categories, questions }) {
                   </div>
                 ) : (
                   <>
-                    {/* reuzywamy standardowych przyciskow: odkryj odpowiedzi / buzzer / ocena */}
+                    {/* aktualne pytanie widoczne dla hosta */}
+                    {q && (
+                      <div className="panel" style={{ padding: 10, marginBottom: 8, background: "rgba(0,0,0,0.35)" }}>
+                        <div className="mono" style={{ marginBottom: 4 }}>{q.text}</div>
+                        {q.type === "closed" && (
+                          <div className="mono small">
+                            {q.options.map((o, i) => (
+                              <span key={o.id} style={{ marginRight: 12, color: o.id === q.correctOptionId ? "var(--green)" : "var(--dim)" }}>
+                                {OPT_KEYS[i]}. {o.text}{o.id === q.correctOptionId ? " ✓" : ""}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {q.type === "open" && <div className="mono small" style={{ color: "var(--green)" }}>Poprawna: {q.correctAnswer}</div>}
+                      </div>
+                    )}
+
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "8px 0" }}>
                       {duel.mode === "buzzer" && (
                         <>
                           {!state.buzzerOpen && !state.buzzerWinnerId && <button className="btn btn-mag btn-sm" onClick={() => act("openBuzzer")}>OTWORZ BUZZER</button>}
-                          <button className="btn btn-green btn-sm" onClick={() => act("acceptBuzz", {})} disabled={!buzz.length}>ZATWIERDZ PIERWSZEGO</button>
                           {state.buzzerWinnerId && <button className="btn btn-amber btn-sm" onClick={() => act("duelPass")}>PRZEKAZ RYWALOWI</button>}
                           <button className="btn btn-sm" onClick={() => act("clearBuzzer")}>RESET BUZZERA</button>
                         </>
@@ -605,23 +620,50 @@ export default function GameControl({ secret, code, categories, questions }) {
                       <button className="btn btn-amber btn-sm" onClick={() => act("revealAnswers")} disabled={state.answersRevealed}>ODKRYJ ODPOWIEDZI</button>
                     </div>
 
-                    {/* lista uprawnionych do oceny */}
+                    {/* kolejnosc buzzera — host wybiera komu przyznac glos */}
+                    {duel.mode === "buzzer" && buzz.length > 0 && (
+                      <div className="panel" style={{ padding: 8, marginBottom: 8 }}>
+                        <div className="mono small muted">Kolejnosc buzzera:</div>
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
+                          {buzz.map((bid, i) => (
+                            <button key={bid} className={"btn btn-sm " + (state.buzzerWinnerId === bid ? "btn-green" : "")}
+                              onClick={() => act("acceptBuzz", { pid: bid })}>
+                              {i + 1}. {playerMap[bid]?.emoji} {playerMap[bid]?.name}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* uczestnicy pojedynku: odpowiedz za gracza + ocena */}
                     <div style={{ display: "grid", gap: 6 }}>
                       {(state.eligibleIds || []).map((pid) => {
                         const a = answers[pid];
                         const isClosed = q?.type === "closed";
+                        const draft = mark[pid] || {};
                         return (
                           <div key={pid} className="panel" style={{ padding: 8 }}>
-                            <span className="mono">{playerMap[pid]?.emoji} {playerMap[pid]?.name}: {a ? (isClosed ? (OPT_KEYS[q.options.findIndex((o) => o.id === a.optionId)] || "?") : ("„" + (a.text || "") + "")) : "—"}</span>
+                            <div className="mono">{playerMap[pid]?.emoji} {playerMap[pid]?.name}: {a ? (isClosed ? (OPT_KEYS[q.options.findIndex((o) => o.id === a.optionId)] || "?") : ("„" + (a.text || "") + "")) : "— brak"}</div>
+                            {/* odpowiedz w imieniu gracza (po czasie) */}
                             {isClosed ? (
-                              <span className="mono small muted"> {a && q && a.optionId === q.correctOptionId ? "✓ dobrze" : a ? "✗ zle" : ""}</span>
+                              <div className="field-row" style={{ marginTop: 6 }}>
+                                <span className="mono small muted">za gracza:</span>
+                                {q.options.map((o, i) => (
+                                  <button key={o.id} className={"chip" + (a?.optionId === o.id ? " on" : "")}
+                                    onClick={() => act("markAnswer", { pid, optionId: o.id })}>{OPT_KEYS[i]}</button>
+                                ))}
+                                <span className="mono small">{a ? (a.optionId === q.correctOptionId ? "✓ dobrze" : "✗ zle") : ""}</span>
+                              </div>
                             ) : (
-                              <span style={{ marginLeft: 8 }}>
-                                <button className="btn btn-green btn-sm" onClick={() => act("judgeAnswer", { pid, correct: true })}>OK</button>{" "}
+                              <div className="field-row" style={{ marginTop: 6 }}>
+                                <input style={{ flex: 1 }} placeholder="odpowiedz za gracza" value={draft.text || ""}
+                                  onChange={(e) => setMark({ ...mark, [pid]: { ...draft, text: e.target.value } })} />
+                                <button className="btn btn-sm" onClick={() => act("markAnswer", { pid, text: draft.text || "" })}>ZAPISZ</button>
+                                <button className="btn btn-green btn-sm" onClick={() => act("judgeAnswer", { pid, correct: true })}>OK</button>
                                 <button className="btn btn-mag btn-sm" onClick={() => act("judgeAnswer", { pid, correct: false })}>ZLE</button>
-                                {a?.judged === true && <span className="mono" style={{ color: "var(--green)" }}> uznane</span>}
-                                {a?.judged === false && <span className="mono" style={{ color: "var(--magenta)" }}> odrzucone</span>}
-                              </span>
+                                {a?.judged === true && <span className="mono" style={{ color: "var(--green)" }}>uznane</span>}
+                                {a?.judged === false && <span className="mono" style={{ color: "var(--magenta)" }}>odrzucone</span>}
+                              </div>
                             )}
                           </div>
                         );
@@ -646,9 +688,10 @@ export default function GameControl({ secret, code, categories, questions }) {
       {/* ===================== RUNDA 3: FINAL (SZACOWANIE) ===================== */}
       {phase === "final" && (() => {
         const fin = view.final;
-        const estQuestions = (questions || []).filter((x) => x.categoryId === "cat_szacowanie");
+        const estQuestions = (questions || []).filter((x) => x.type === "estimate");
         const used = new Set(state.usedQuestionIds || []);
         const finalists = (fin?.duelIds || []).map((id) => playerMap[id]).filter(Boolean);
+        const catMap = {}; for (const c of (view.categories || [])) catMap[c.id] = c;
         return (
           <div className="panel">
             <h3 className="display" style={{ color: "var(--green)", marginTop: 0 }}>FINAL · SZACOWANIE</h3>
@@ -660,17 +703,20 @@ export default function GameControl({ secret, code, categories, questions }) {
             {(!fin?.questionId || fin?.revealed) && (
               <div style={{ marginBottom: 12 }}>
                 <div className="field-row" style={{ marginBottom: 8 }}>
-                  <span className="mono">Typ (override):</span>
+                  <span className="mono">Typ odpowiedzi (override):</span>
                   <button className={"chip" + (estType === "" ? " on" : "")} onClick={() => setEstType("")}>z pytania</button>
                   <button className={"chip" + (estType === "integer" ? " on" : "")} onClick={() => setEstType("integer")}>integer</button>
                   <button className={"chip" + (estType === "float" ? " on" : "")} onClick={() => setEstType("float")}>float</button>
                   <button className={"chip" + (estType === "time" ? " on" : "")} onClick={() => setEstType("time")}>time</button>
                 </div>
                 <div style={{ display: "grid", gap: 6 }}>
-                  {estQuestions.length === 0 && <span className="mono muted">Brak pytan w kategorii SZACOWANIE (zaseeduj baze).</span>}
+                  {estQuestions.length === 0 && <span className="mono muted">Brak pytan typu SZACOWANIE (dodaj w BAZIE PYTAN lub zaseeduj).</span>}
                   {estQuestions.map((qq) => (
                     <div key={qq.id} className="panel" style={{ display: "flex", gap: 10, alignItems: "center", padding: 10, opacity: used.has(qq.id) ? 0.5 : 1 }}>
-                      <span className="mono" style={{ flex: 1 }}>[{qq.estimateType}] {qq.text} {used.has(qq.id) ? "· (uzyte)" : ""}</span>
+                      <span className="mono" style={{ flex: 1 }}>
+                        <span className="tag" style={{ color: catMap[qq.categoryId]?.color, borderColor: catMap[qq.categoryId]?.color, marginRight: 6 }}>{catMap[qq.categoryId]?.name || "?"}</span>
+                        [{qq.estimateType}] {qq.text} {used.has(qq.id) ? "· (uzyte)" : ""}
+                      </span>
                       <button className="btn btn-green btn-sm" disabled={used.has(qq.id)}
                         onClick={() => act("presentEstimate", { questionId: qq.id, estimateType: estType || undefined })}>POKAZ</button>
                     </div>
@@ -681,24 +727,37 @@ export default function GameControl({ secret, code, categories, questions }) {
 
             {fin?.questionId && !fin?.revealed && (
               <div className="panel" style={{ padding: 12 }}>
-                <div className="mono">Zebrane szacunki:</div>
-                <div style={{ display: "grid", gap: 4, margin: "6px 0" }}>
-                  {(fin.duelIds || []).map((pid) => (
-                    <span key={pid} className="mono">
-                      {playerMap[pid]?.emoji} {playerMap[pid]?.name}: {answeredIds.includes(pid) ? "✓ wyslal" : "… czeka"}
-                    </span>
-                  ))}
+                <div className="mono small muted">
+                  Manipulacja wylosowana: {fin.manipulated ? <b style={{ color: "var(--magenta)" }}>TAK 👽</b> : <b style={{ color: "var(--cyan)" }}>NIE ✅</b>}
+                  {" · "}poprawna: <b style={{ color: "var(--green)" }}>{fin.correctValue}</b>
+                  {fin.manipulated && <> · zmanipulowana: <b style={{ color: "var(--amber)" }}>{fin.manipValue}</b></>}
+                </div>
+                <div className="mono" style={{ marginTop: 8 }}>Szacunki / odpowiedz za gracza:</div>
+                <div style={{ display: "grid", gap: 6, margin: "6px 0" }}>
+                  {(fin.duelIds || []).map((pid) => {
+                    const a = answers[pid];
+                    const draft = mark[pid] || {};
+                    return (
+                      <div key={pid} className="field-row">
+                        <span className="mono" style={{ minWidth: 120 }}>{playerMap[pid]?.emoji} {playerMap[pid]?.name}: {answeredIds.includes(pid) ? `✓ ${a?.value ?? ""}` : "… czeka"}</span>
+                        <input type="number" step="any" style={{ width: 120 }} placeholder="za gracza" value={draft.value ?? ""}
+                          onChange={(e) => setMark({ ...mark, [pid]: { ...draft, value: e.target.value } })} />
+                        <button className="btn btn-sm" onClick={() => act("markAnswer", { pid, value: Number(draft.value) })}>ZAPISZ</button>
+                      </div>
+                    );
+                  })}
                 </div>
                 {countdown && <div className="mono" style={{ color: "var(--cyan)" }}>{Math.ceil(countdown.left)}s</div>}
                 <button className="btn btn-amber btn-lg" style={{ marginTop: 8 }} onClick={() => act("revealEstimate")}>
-                  UJAWNIJ + LOSUJ MANIPULACJE
+                  UJAWNIJ WYNIKI
                 </button>
               </div>
             )}
 
             {fin?.revealed && (
               <div className="panel" style={{ padding: 12 }}>
-                <div className="mono">Poprawna{fin.manipulated ? " (zmanipulowana o 10%)" : ""}: <b style={{ color: "var(--amber)" }}>{fin.manipValue}</b></div>
+                <div className="mono">Wartosc porownywana{fin.manipulated ? " (zmanipulowana o 10%)" : ""}: <b style={{ color: "var(--amber)" }}>{fin.manipValue}</b></div>
+                {fin.manipulated && <div className="mono small muted">Prawdziwa (niezmanipulowana): {fin.correctValue}</div>}
                 <div className="mono" style={{ marginTop: 4 }}>
                   Zwyciezca rundy: {fin.winnerId ? `${playerMap[fin.winnerId]?.emoji} ${playerMap[fin.winnerId]?.name}` : "—"}
                 </div>
