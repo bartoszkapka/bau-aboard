@@ -1,4 +1,4 @@
-import { getGame, setPlayer } from "@/lib/store";
+import { getGame, getPlayer, setPlayer } from "@/lib/store";
 import { makeId } from "@/lib/ids";
 
 export const dynamic = "force-dynamic";
@@ -13,6 +13,19 @@ export async function POST(req, { params }) {
 
   if (!isTV && (!body.name || !body.name.trim())) {
     return Response.json({ error: "Podaj swoja nazwe" }, { status: 400 });
+  }
+
+  // Powrot do gry: jesli przekazano pid istniejacego gracza, uzyj go ponownie
+  // (zachowuje punkty po zamknieciu i ponownym otwarciu karty na tym samym urzadzeniu).
+  if (!isTV && body.pid) {
+    const existing = await getPlayer(code, body.pid);
+    if (existing && !existing.isTV) {
+      existing.name = body.name.trim().slice(0, 24);
+      existing.emoji = body.emoji || existing.emoji || "🎮";
+      existing.lastSeen = Date.now();
+      await setPlayer(code, existing);
+      return Response.json({ player: existing, resumed: true });
+    }
   }
 
   const player = {

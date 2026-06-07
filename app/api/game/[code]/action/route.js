@@ -63,7 +63,9 @@ async function applyScoring(game) {
   correctEntries.sort((x, y) => x.order - y.order);
 
   const base = game.settings.pointsPerQuestion || 0;
-  const bonus = game.settings.bonusPoints || 0;
+  const bonuses = Array.isArray(game.settings.bonuses)
+    ? game.settings.bonuses
+    : [game.settings.bonusPoints || 0]; // zgodnosc ze starym formatem
   const playerMap = {};
   for (const p of players) playerMap[p.id] = p;
 
@@ -71,7 +73,8 @@ async function applyScoring(game) {
     const p = playerMap[e.pid];
     if (!p) return;
     let gain = base;
-    if (game.settings.speedBonus && idx === 0) gain += bonus; // tylko kolejnosc -> najszybszy
+    // premia tylko za KOLEJNOSC (1./2./3. najszybsza poprawna), nie za czas
+    if (game.settings.speedBonus && bonuses[idx]) gain += Number(bonuses[idx]) || 0;
     p.score = (p.score || 0) + gain;
   });
 

@@ -162,9 +162,31 @@ input, select, textarea {
   width: 100%;
   outline: none;
 }
+input[type="checkbox"], input[type="radio"] {
+  width: auto;
+  flex: 0 0 auto;
+  vertical-align: middle;
+  accent-color: var(--cyan);
+}
 input:focus, select:focus, textarea:focus {
   border-color: var(--cyan);
   box-shadow: 0 0 0 1px var(--cyan), 0 0 16px rgba(35,224,200,0.25);
+}
+
+/* CHIPY — klikalne, podswietlane kafelki (np. wybor graczy) */
+.chip {
+  font-family: var(--mono); font-size: 15px;
+  padding: 8px 12px; border: 1px solid var(--line); border-radius: 4px;
+  background: rgba(0,0,0,0.3); color: var(--text); cursor: pointer;
+  transition: transform .1s, box-shadow .12s, background .12s, border-color .12s;
+}
+.chip:hover { border-color: var(--cyan); transform: translateY(-1px); }
+.chip.on {
+  border-color: var(--cyan); background: var(--cyan); color: #021713;
+  box-shadow: 0 0 16px var(--cyan);
+}
+.field-row {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
 }
 textarea { resize: vertical; min-height: 70px; line-height: 1.2; }
 select option { background: var(--panel-solid); }

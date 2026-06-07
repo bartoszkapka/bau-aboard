@@ -13,6 +13,7 @@ export default function GameControl({ secret, code, categories, questions }) {
   const [selEligible, setSelEligible] = useState({}); // pid -> bool (tryb "wybierz")
   const [mark, setMark] = useState({}); // pid -> {optionId, text} szkic odpowiedzi hosta
   const [setVal, setSetVal] = useState({}); // pid -> wpisywana wartosc punktow
+  const [presentMode, setPresentMode] = useState("all"); // typ odpowiedzi wybierany PRZED pokazaniem pytania
 
   function note(m) {
     setMsg(m);
@@ -34,7 +35,11 @@ export default function GameControl({ secret, code, categories, questions }) {
   // inicjalizacja formularza ustawien gdy przyjdzie pierwszy widok
   useEffect(() => {
     if (settings && form === null) {
-      setForm({ ...settings });
+      const bonuses = Array.isArray(settings.bonuses)
+        ? settings.bonuses
+        : [settings.bonusPoints || 0, 0, 0];
+      const b = [bonuses[0] || 0, bonuses[1] || 0, bonuses[2] || 0];
+      setForm({ ...settings, bonuses: b });
       if (settings.categoriesToShow) setCatCount(settings.categoriesToShow);
     }
   }, [settings, form]);
@@ -86,17 +91,36 @@ export default function GameControl({ secret, code, categories, questions }) {
         timeLimitSec: Number(form.timeLimitSec) || 0,
         pointsPerQuestion: Number(form.pointsPerQuestion) || 0,
         speedBonus: !!form.speedBonus,
-        bonusPoints: Number(form.bonusPoints) || 0,
+        bonuses: [
+          Number(form.bonuses?.[0]) || 0,
+          Number(form.bonuses?.[1]) || 0,
+          Number(form.bonuses?.[2]) || 0,
+        ],
         categoriesToShow: Number(form.categoriesToShow) || 4,
       },
     });
     note("Ustawienia zapisane");
   }
 
+  function setBonus(i, val) {
+    const b = [...(form.bonuses || [0, 0, 0])];
+    b[i] = val;
+    setForm({ ...form, bonuses: b });
+  }
+
   function confirmSelect() {
     const ids = Object.keys(selEligible).filter((k) => selEligible[k]);
     if (!ids.length) return note("Zaznacz przynajmniej jednego uczestnika");
     act("setAnswerMode", { mode: "select", eligibleIds: ids });
+  }
+
+  function pickRandom(pool) {
+    const used = new Set(state?.usedQuestionIds || []);
+    let candidates = (pool || []).filter((x) => !used.has(x.id));
+    if (candidates.length === 0) candidates = pool || []; // wszystkie juz uzyte -> losuj z calosci
+    if (candidates.length === 0) return note("Brak pytan do wylosowania");
+    const pick = candidates[Math.floor(Math.random() * candidates.length)];
+    act("presentQuestion", { questionId: pick.id, answerMode: presentMode });
   }
 
   function markOnBehalf(pid) {
@@ -140,20 +164,36 @@ export default function GameControl({ secret, code, categories, questions }) {
               <input type="number" min="0" value={form.pointsPerQuestion}
                 onChange={(e) => setForm({ ...form, pointsPerQuestion: e.target.value })} />
             </label>
-            <label className="mono">Punkty bonus (szybkosc)
-              <input type="number" min="0" value={form.bonusPoints}
-                onChange={(e) => setForm({ ...form, bonusPoints: e.target.value })} />
-            </label>
             <label className="mono">Kategorii do pokazania
               <input type="number" min="1" value={form.categoriesToShow}
                 onChange={(e) => setForm({ ...form, categoriesToShow: e.target.value })} />
             </label>
-            <label className="mono" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <input type="checkbox" checked={!!form.speedBonus}
-                onChange={(e) => setForm({ ...form, speedBonus: e.target.checked })} />
-              Premia za szybkosc
+          </div>
+
+          <div className="field-row" style={{ marginTop: 12 }}>
+            <input id="sb" type="checkbox" checked={!!form.speedBonus}
+              onChange={(e) => setForm({ ...form, speedBonus: e.target.checked })} />
+            <label htmlFor="sb" className="mono" style={{ cursor: "pointer" }}>
+              Premia za szybkosc (liczy sie tylko kolejnosc, nie czas)
             </label>
           </div>
+
+          {form.speedBonus && (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10, marginTop: 10 }}>
+              <label className="mono">Bonus za 1. miejsce
+                <input type="number" min="0" value={form.bonuses?.[0] ?? 0}
+                  onChange={(e) => setBonus(0, e.target.value)} />
+              </label>
+              <label className="mono">Bonus za 2. miejsce
+                <input type="number" min="0" value={form.bonuses?.[1] ?? 0}
+                  onChange={(e) => setBonus(1, e.target.value)} />
+              </label>
+              <label className="mono">Bonus za 3. miejsce
+                <input type="number" min="0" value={form.bonuses?.[2] ?? 0}
+                  onChange={(e) => setBonus(2, e.target.value)} />
+              </label>
+            </div>
+          )}
           <div style={{ marginTop: 12 }}>
             <button className="btn btn-cyan" onClick={saveSettings}>ZAPISZ USTAWIENIA</button>
           </div>
@@ -183,6 +223,9 @@ export default function GameControl({ secret, code, categories, questions }) {
             <button className="btn btn-purple btn-sm" onClick={() => act("showCategories", { count: Number(catCount) || undefined })}>
               POKAZ / LOSUJ KATEGORIE
             </button>
+            <button className="btn btn-cyan btn-sm" onClick={() => pickRandom(questions || [])}>
+              🎲 LOSUJ DOWOLNE PYTANIE
+            </button>
           </div>
 
           {view.shownCategories?.length > 0 && (
@@ -201,6 +244,15 @@ export default function GameControl({ secret, code, categories, questions }) {
           {state.selectedCategoryId && (
             <div style={{ marginTop: 18 }}>
               <h4 className="display" style={{ color: "var(--cyan)" }}>PYTANIA W KATEGORII</h4>
+
+              <div className="field-row" style={{ margin: "6px 0 12px" }}>
+                <span className="mono">Typ odpowiedzi:</span>
+                <button type="button" className={"chip" + (presentMode === "all" ? " on" : "")} onClick={() => setPresentMode("all")}>WSZYSCY</button>
+                <button type="button" className={"chip" + (presentMode === "select" ? " on" : "")} onClick={() => setPresentMode("select")}>WYBIERZ</button>
+                <button type="button" className={"chip" + (presentMode === "buzzer" ? " on" : "")} onClick={() => setPresentMode("buzzer")}>BUZZER</button>
+                <button type="button" className="btn btn-cyan btn-sm" onClick={() => pickRandom(catQuestions)}>🎲 LOSUJ Z TEJ KATEGORII</button>
+              </div>
+
               {catQuestions.length === 0 && <p className="mono">Brak pytan w tej kategorii.</p>}
               <div style={{ display: "grid", gap: 8 }}>
                 {catQuestions.map((qq) => (
@@ -208,7 +260,7 @@ export default function GameControl({ secret, code, categories, questions }) {
                     <span className="mono" style={{ flex: 1 }}>
                       [{qq.type === "closed" ? "ZAMK" : "OTW"}] {qq.text}
                     </span>
-                    <button className="btn btn-green btn-sm" onClick={() => act("presentQuestion", { questionId: qq.id, answerMode: "all" })}>
+                    <button className="btn btn-green btn-sm" onClick={() => act("presentQuestion", { questionId: qq.id, answerMode: presentMode })}>
                       POKAZ PYTANIE
                     </button>
                   </div>
@@ -249,13 +301,14 @@ export default function GameControl({ secret, code, categories, questions }) {
           {/* WYBOR UCZESTNIKOW */}
           {state.answerMode === "select" && (
             <div className="panel" style={{ padding: 12 }}>
+              <div className="mono small muted" style={{ marginBottom: 8 }}>Kliknij graczy, ktorzy moga odpowiadac:</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                 {players.map((p) => (
-                  <label key={p.id} className="mono" style={{ display: "flex", alignItems: "center", gap: 6, border: "1px solid var(--line)", padding: "4px 8px" }}>
-                    <input type="checkbox" checked={!!selEligible[p.id]}
-                      onChange={(e) => setSelEligible({ ...selEligible, [p.id]: e.target.checked })} />
+                  <button key={p.id} type="button"
+                    className={"chip" + (selEligible[p.id] ? " on" : "")}
+                    onClick={() => setSelEligible({ ...selEligible, [p.id]: !selEligible[p.id] })}>
                     {p.emoji} {p.name}
-                  </label>
+                  </button>
                 ))}
               </div>
               <button className="btn btn-cyan btn-sm" style={{ marginTop: 10 }} onClick={confirmSelect}>
@@ -286,7 +339,10 @@ export default function GameControl({ secret, code, categories, questions }) {
                   </div>
                 ))}
               </div>
-              <div style={{ display: "flex", gap: 8 }}>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {!state.buzzerOpen && !state.buzzerWinnerId && (
+                  <button className="btn btn-mag btn-sm" onClick={() => act("openBuzzer")}>OTWORZ BUZZER</button>
+                )}
                 <button className="btn btn-green btn-sm" onClick={() => act("acceptBuzz", {})} disabled={!buzz.length}>
                   ZATWIERDZ PIERWSZEGO
                 </button>
