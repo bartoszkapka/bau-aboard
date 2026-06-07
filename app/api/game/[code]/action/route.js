@@ -114,6 +114,7 @@ async function applyScoring(game) {
   for (const pid of Object.keys(answers)) {
     if (!eligibleSet.has(pid)) continue;
     const a = answers[pid];
+    if (a.late && a.lateAccepted !== true) continue; // po czasie i niezaliczona = pomijamy (liczy sie jak bledna)
     let correct = q.type === "closed" ? a.optionId && a.optionId === q.correctOptionId : a.judged === true;
     if (correct) correctEntries.push({ pid, order: a.order || 999 });
   }
@@ -252,6 +253,8 @@ export async function POST(req, { params }) {
         value: body.value != null ? Number(body.value) : existing[pid]?.value ?? null,
         order, at: Date.now(), byHost: true,
         judged: body.correct != null ? !!body.correct : existing[pid]?.judged ?? null,
+        late: existing[pid]?.late ?? false,
+        lateAccepted: existing[pid]?.lateAccepted ?? false,
       });
       break;
     }
@@ -259,6 +262,12 @@ export async function POST(req, { params }) {
       const pid = body.pid;
       const existing = await getAnswers(code);
       if (existing[pid]) { existing[pid].judged = !!body.correct; await setAnswer(code, pid, existing[pid]); }
+      break;
+    }
+    case "acceptLate": {
+      const pid = body.pid;
+      const existing = await getAnswers(code);
+      if (existing[pid]) { existing[pid].lateAccepted = !!body.accept; await setAnswer(code, pid, existing[pid]); }
       break;
     }
     case "revealCorrect": {
@@ -349,6 +358,7 @@ export async function POST(req, { params }) {
       const correctOf = (pid) => {
         const a = answers[pid];
         if (!a) return false;
+        if (a.late && a.lateAccepted !== true) return false; // po czasie i niezaliczona
         if (q && q.type === "closed") return a.optionId && a.optionId === q.correctOptionId;
         return a.judged === true;
       };
@@ -443,7 +453,11 @@ export async function POST(req, { params }) {
       const answers = await getAnswers(code);
       const ids = f.duelIds || [];
       const estimates = {};
-      for (const pid of ids) { const a = answers[pid]; estimates[pid] = a && a.value != null ? Number(a.value) : null; }
+      for (const pid of ids) {
+        const a = answers[pid];
+        if (a && a.late && a.lateAccepted !== true) { estimates[pid] = null; continue; } // po czasie, niezaliczona
+        estimates[pid] = a && a.value != null ? Number(a.value) : null;
+      }
 
       const manipValue = f.manipValue != null ? f.manipValue : f.correctValue; // wylosowane wczesniej
       let best = null, bestD = Infinity;

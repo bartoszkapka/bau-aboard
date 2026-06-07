@@ -5,6 +5,11 @@ import { useGame, useCountdown } from "@/lib/hooks";
 
 const OPT_KEYS = ["A", "B", "C", "D"];
 
+function minToTimeH(m) {
+  const v = ((Math.round(Number(m) || 0) % 1440) + 1440) % 1440;
+  return String(Math.floor(v / 60)).padStart(2, "0") + ":" + String(v % 60).padStart(2, "0");
+}
+
 export default function GameControl({ secret, code, categories, questions }) {
   const { view, error, refresh } = useGame(code, "host", null, 1000);
   const [msg, setMsg] = useState("");
@@ -86,7 +91,7 @@ export default function GameControl({ secret, code, categories, questions }) {
 
   const phase = state.phase;
   const catQuestions = (questions || []).filter(
-    (x) => x.categoryId === state.selectedCategoryId
+    (x) => x.categoryId === state.selectedCategoryId && x.type !== "estimate"
   );
 
   function saveSettings() {
@@ -319,7 +324,7 @@ export default function GameControl({ secret, code, categories, questions }) {
             <button className={"btn btn-sm " + (state.answerMode === "select" ? "active" : "btn-cyan")}
               onClick={() => act("setAnswerMode", { mode: "select", eligibleIds: [] })}>WYBIERZ</button>
             <button className={"btn btn-sm " + (state.answerMode === "buzzer" ? "active" : "btn-mag")}
-              onClick={() => act("openBuzzer")}>BUZZER</button>
+              onClick={() => act("setAnswerMode", { mode: "buzzer" })}>BUZZER</button>
           </div>
 
           {/* WYBOR UCZESTNIKOW */}
@@ -415,7 +420,14 @@ export default function GameControl({ secret, code, categories, questions }) {
                             {a?.byHost ? " (host)" : ""}
                           </span>
                         : <span style={{ color: "var(--magenta)" }}>— brak odpowiedzi</span>}
+                      {a?.late && <span style={{ color: "var(--magenta)" }}> ⏱ po czasie{a?.lateAccepted ? " · zaliczona" : ""}</span>}
                     </span>
+                    {a?.late && (
+                      <button className={"btn btn-sm " + (a?.lateAccepted ? "btn-mag" : "btn-green")}
+                        onClick={() => act("acceptLate", { pid, accept: !a?.lateAccepted })}>
+                        {a?.lateAccepted ? "COFNIJ" : "ZALICZ PO CZASIE"}
+                      </button>
+                    )}
                   </div>
 
                   {/* zaznaczanie w imieniu uczestnika */}
@@ -643,7 +655,16 @@ export default function GameControl({ secret, code, categories, questions }) {
                         const draft = mark[pid] || {};
                         return (
                           <div key={pid} className="panel" style={{ padding: 8 }}>
-                            <div className="mono">{playerMap[pid]?.emoji} {playerMap[pid]?.name}: {a ? (isClosed ? (OPT_KEYS[q.options.findIndex((o) => o.id === a.optionId)] || "?") : ("„" + (a.text || "") + "")) : "— brak"}</div>
+                            <div className="mono">
+                              {playerMap[pid]?.emoji} {playerMap[pid]?.name}: {a ? (isClosed ? (OPT_KEYS[q.options.findIndex((o) => o.id === a.optionId)] || "?") : ("„" + (a.text || "") + "")) : "— brak"}
+                              {a?.late && <span style={{ color: "var(--magenta)" }}> ⏱ po czasie{a?.lateAccepted ? " · zaliczona" : ""}</span>}
+                              {a?.late && (
+                                <button className={"btn btn-sm " + (a?.lateAccepted ? "btn-mag" : "btn-green")} style={{ marginLeft: 8 }}
+                                  onClick={() => act("acceptLate", { pid, accept: !a?.lateAccepted })}>
+                                  {a?.lateAccepted ? "COFNIJ" : "ZALICZ"}
+                                </button>
+                              )}
+                            </div>
                             {/* odpowiedz w imieniu gracza (po czasie) */}
                             {isClosed ? (
                               <div className="field-row" style={{ marginTop: 6 }}>
@@ -689,9 +710,9 @@ export default function GameControl({ secret, code, categories, questions }) {
       {phase === "final" && (() => {
         const fin = view.final;
         const estQuestions = (questions || []).filter((x) => x.type === "estimate");
-        const used = new Set(state.usedQuestionIds || []);
         const finalists = (fin?.duelIds || []).map((id) => playerMap[id]).filter(Boolean);
         const catMap = {}; for (const c of (view.categories || [])) catMap[c.id] = c;
+        const etype = fin?.estimateType || "integer";
         return (
           <div className="panel">
             <h3 className="display" style={{ color: "var(--green)", marginTop: 0 }}>FINAL · SZACOWANIE</h3>
@@ -712,12 +733,12 @@ export default function GameControl({ secret, code, categories, questions }) {
                 <div style={{ display: "grid", gap: 6 }}>
                   {estQuestions.length === 0 && <span className="mono muted">Brak pytan typu SZACOWANIE (dodaj w BAZIE PYTAN lub zaseeduj).</span>}
                   {estQuestions.map((qq) => (
-                    <div key={qq.id} className="panel" style={{ display: "flex", gap: 10, alignItems: "center", padding: 10, opacity: used.has(qq.id) ? 0.5 : 1 }}>
+                    <div key={qq.id} className="panel" style={{ display: "flex", gap: 10, alignItems: "center", padding: 10 }}>
                       <span className="mono" style={{ flex: 1 }}>
                         <span className="tag" style={{ color: catMap[qq.categoryId]?.color, borderColor: catMap[qq.categoryId]?.color, marginRight: 6 }}>{catMap[qq.categoryId]?.name || "?"}</span>
-                        [{qq.estimateType}] {qq.text} {used.has(qq.id) ? "· (uzyte)" : ""}
+                        [{qq.estimateType}] {qq.text}
                       </span>
-                      <button className="btn btn-green btn-sm" disabled={used.has(qq.id)}
+                      <button className="btn btn-green btn-sm"
                         onClick={() => act("presentEstimate", { questionId: qq.id, estimateType: estType || undefined })}>POKAZ</button>
                     </div>
                   ))}
@@ -737,12 +758,33 @@ export default function GameControl({ secret, code, categories, questions }) {
                   {(fin.duelIds || []).map((pid) => {
                     const a = answers[pid];
                     const draft = mark[pid] || {};
+                    const late = a?.late && !a?.lateAccepted;
                     return (
                       <div key={pid} className="field-row">
-                        <span className="mono" style={{ minWidth: 120 }}>{playerMap[pid]?.emoji} {playerMap[pid]?.name}: {answeredIds.includes(pid) ? `✓ ${a?.value ?? ""}` : "… czeka"}</span>
-                        <input type="number" step="any" style={{ width: 120 }} placeholder="za gracza" value={draft.value ?? ""}
-                          onChange={(e) => setMark({ ...mark, [pid]: { ...draft, value: e.target.value } })} />
-                        <button className="btn btn-sm" onClick={() => act("markAnswer", { pid, value: Number(draft.value) })}>ZAPISZ</button>
+                        <span className="mono" style={{ minWidth: 120 }}>
+                          {playerMap[pid]?.emoji} {playerMap[pid]?.name}: {answeredIds.includes(pid) ? `✓ ${a?.value ?? ""}` : "… czeka"}
+                          {a?.late && <span style={{ color: "var(--magenta)" }}> ⏱ po czasie{a?.lateAccepted ? " (zaliczona)" : ""}</span>}
+                        </span>
+                        {etype === "time" ? (
+                          <input type="time" style={{ width: 130 }}
+                            value={draft.timeStr ?? (a?.value != null ? minToTimeH(a.value) : "")}
+                            onChange={(e) => setMark({ ...mark, [pid]: { ...draft, timeStr: e.target.value } })} />
+                        ) : (
+                          <input type="number" step={etype === "float" ? "any" : "1"} style={{ width: 120 }} placeholder="za gracza"
+                            value={draft.value ?? ""} onChange={(e) => setMark({ ...mark, [pid]: { ...draft, value: e.target.value } })} />
+                        )}
+                        <button className="btn btn-sm" onClick={() => {
+                          let v;
+                          if (etype === "time") { const [h, m] = (draft.timeStr || "0:0").split(":").map(Number); v = (h || 0) * 60 + (m || 0); }
+                          else v = etype === "integer" ? parseInt(draft.value, 10) : parseFloat(draft.value);
+                          act("markAnswer", { pid, value: v });
+                        }}>ZAPISZ</button>
+                        {a?.late && (
+                          <button className={"btn btn-sm " + (a?.lateAccepted ? "btn-mag" : "btn-green")}
+                            onClick={() => act("acceptLate", { pid, accept: !a?.lateAccepted })}>
+                            {a?.lateAccepted ? "COFNIJ" : "ZALICZ PO CZASIE"}
+                          </button>
+                        )}
                       </div>
                     );
                   })}

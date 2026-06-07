@@ -146,8 +146,9 @@ export default function PlayPage() {
   const myAnswer = view.answers?.[pid];
   const correctId = q?.correctOptionId;
   const inDuel = state?.phase === "territory" && !!q;
-  const showQ = (state?.phase === "question" || state?.phase === "reveal" || inDuel) && q;
+  const showQ = (state?.phase === "question" || state?.phase === "reveal" || inDuel) && q && state?.status !== "ended";
   const amFinalist = fin && (fin.duelIds || []).includes(pid);
+  const qCat = (view.categories || []).find((c) => c.id === q?.categoryId);
 
   return (
     <div className="screen">
@@ -207,7 +208,10 @@ export default function PlayPage() {
         {/* PYTANIE / POJEDYNEK */}
         {showQ && (
           <div className="panel col">
-            <div className="label">{inDuel ? "POJEDYNEK" : "PYTANIE"}</div>
+            <div className="spread">
+              <div className="label">{inDuel ? "POJEDYNEK" : "PYTANIE"}</div>
+              {qCat && <span className="tag" style={{ color: qCat.color, borderColor: qCat.color }}>{qCat.name}</span>}
+            </div>
             <div className="ca" style={{ fontSize: 24, lineHeight: 1.15 }}>
               {state.answerMode === "buzzer" && !state.buzzerOpen && !state.buzzerWinnerId
                 ? "Przygotuj sie — buzzer za chwile..."

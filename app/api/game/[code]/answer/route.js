@@ -26,12 +26,12 @@ export async function POST(req, { params }) {
     (game.answerMode === "all") || (game.eligibleIds || []).includes(pid);
   if (!eligible) return Response.json({ error: "Nie masz prawa odpowiadac" }, { status: 403 });
 
-  // limit czasu (miekko)
+  // limit czasu — odpowiedzi po czasie sa DOZWOLONE, ale oznaczane jako spoznione
+  let late = false;
   const t = game.timer;
   if (t && t.running && t.startedAt && t.durationSec > 0) {
     const elapsed = (Date.now() - t.startedAt) / 1000;
-    if (elapsed > t.durationSec + 1.5)
-      return Response.json({ error: "Czas minal" }, { status: 409 });
+    if (elapsed > t.durationSec) late = true;
   }
 
   const existing = await getAnswers(code);
@@ -47,7 +47,9 @@ export async function POST(req, { params }) {
     at: Date.now(),
     byHost: false,
     judged: null,
+    late, // odpowiedz po czasie — host decyduje czy zaliczyc
+    lateAccepted: false,
   };
   await setAnswer(code, pid, answer);
-  return Response.json({ ok: true, order });
+  return Response.json({ ok: true, order, late });
 }
