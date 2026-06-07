@@ -8,14 +8,22 @@ export async function POST(req) {
   if (!checkHost(req)) return unauthorized();
   const body = await req.json().catch(() => ({}));
 
-  // wygeneruj unikalny kod
-  let code = makeGameCode();
-  for (let i = 0; i < 5; i++) {
-    const existing = await getGame(code);
-    if (!existing) break;
-    code = makeGameCode();
-  }
+  try {
+    // wygeneruj unikalny kod
+    let code = makeGameCode();
+    for (let i = 0; i < 5; i++) {
+      const existing = await getGame(code);
+      if (!existing) break;
+      code = makeGameCode();
+    }
 
-  const state = await createGame({ code, settings: body.settings || {} });
-  return Response.json({ code, state });
+    const state = await createGame({ code, settings: body.settings || {} });
+    return Response.json({ code, state });
+  } catch (e) {
+    console.error("createGame error:", e);
+    return Response.json(
+      { error: "Blad serwera: " + (e?.message || String(e)) },
+      { status: 500 }
+    );
+  }
 }
