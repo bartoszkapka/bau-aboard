@@ -12,18 +12,21 @@ export async function POST(req, { params }) {
   const player = pid ? await getPlayer(code, pid) : null;
   if (!player || player.isTV) return Response.json({ error: "Nieznany gracz" }, { status: 400 });
 
-  if (game.phase !== "question")
+  const isFinal = game.phase === "final";
+  const okPhase = game.phase === "question" || game.phase === "territory" || isFinal;
+  if (!okPhase)
     return Response.json({ error: "Teraz nie mozna odpowiadac" }, { status: 409 });
-  if (game.correctRevealed)
+  if (game.correctRevealed || (isFinal && game.final?.revealed))
     return Response.json({ error: "Odpowiedz juz ujawniona" }, { status: 409 });
-  if (!game.answersRevealed)
+  // W rundzie finalowej gracze odpowiadaja od razu; w pozostalych po odkryciu wariantow
+  if (!isFinal && !game.answersRevealed)
     return Response.json({ error: "Warianty jeszcze nieodkryte" }, { status: 409 });
 
   const eligible =
     (game.answerMode === "all") || (game.eligibleIds || []).includes(pid);
   if (!eligible) return Response.json({ error: "Nie masz prawa odpowiadac" }, { status: 403 });
 
-  // sprawdz limit czasu (miekko - serwer odrzuca po czasie)
+  // limit czasu (miekko)
   const t = game.timer;
   if (t && t.running && t.startedAt && t.durationSec > 0) {
     const elapsed = (Date.now() - t.startedAt) / 1000;
@@ -39,10 +42,11 @@ export async function POST(req, { params }) {
     pid,
     optionId: body.optionId || null,
     text: body.text != null ? String(body.text).slice(0, 200) : "",
+    value: body.value != null && body.value !== "" ? Number(body.value) : null, // szacowanie
     order,
     at: Date.now(),
     byHost: false,
-    judged: null, // dla pytan otwartych ustawia host
+    judged: null,
   };
   await setAnswer(code, pid, answer);
   return Response.json({ ok: true, order });

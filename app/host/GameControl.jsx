@@ -14,6 +14,10 @@ export default function GameControl({ secret, code, categories, questions }) {
   const [mark, setMark] = useState({}); // pid -> {optionId, text} szkic odpowiedzi hosta
   const [setVal, setSetVal] = useState({}); // pid -> wpisywana wartosc punktow
   const [presentMode, setPresentMode] = useState("all"); // typ odpowiedzi wybierany PRZED pokazaniem pytania
+  const [atkId, setAtkId] = useState(""); // atakujacy w pojedynku
+  const [duelMode, setDuelMode] = useState("all"); // tryb pojedynku gracz vs gracz
+  const [editIdx, setEditIdx] = useState(null); // edycja pola planszy
+  const [estType, setEstType] = useState(""); // override typu szacowania
 
   function note(m) {
     setMsg(m);
@@ -97,6 +101,10 @@ export default function GameControl({ secret, code, categories, questions }) {
           Number(form.bonuses?.[2]) || 0,
         ],
         categoriesToShow: Number(form.categoriesToShow) || 4,
+        wrongPenalty: Number(form.wrongPenalty) || 0,
+        boardSize: Math.max(2, Math.min(8, Number(form.boardSize) || 4)),
+        estimatePoints: Number(form.estimatePoints) || 0,
+        estimateExactBonus: Number(form.estimateExactBonus) || 0,
       },
     });
     note("Ustawienia zapisane");
@@ -167,6 +175,22 @@ export default function GameControl({ secret, code, categories, questions }) {
             <label className="mono">Kategorii do pokazania
               <input type="number" min="1" value={form.categoriesToShow}
                 onChange={(e) => setForm({ ...form, categoriesToShow: e.target.value })} />
+            </label>
+            <label className="mono">Kara za bledna odp.
+              <input type="number" min="0" value={form.wrongPenalty ?? 0}
+                onChange={(e) => setForm({ ...form, wrongPenalty: e.target.value })} />
+            </label>
+            <label className="mono">Plansza terytorium (NxN)
+              <input type="number" min="2" max="8" value={form.boardSize ?? 4}
+                onChange={(e) => setForm({ ...form, boardSize: e.target.value })} />
+            </label>
+            <label className="mono">Final: punkty za blizsza
+              <input type="number" min="0" value={form.estimatePoints ?? 0}
+                onChange={(e) => setForm({ ...form, estimatePoints: e.target.value })} />
+            </label>
+            <label className="mono">Final: bonus za trafienie
+              <input type="number" min="0" value={form.estimateExactBonus ?? 0}
+                onChange={(e) => setForm({ ...form, estimateExactBonus: e.target.value })} />
             </label>
           </div>
 
@@ -448,7 +472,10 @@ export default function GameControl({ secret, code, categories, questions }) {
           {state.status === "active" && (
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <button className="btn btn-purple btn-lg" onClick={() => act("nextRound", { count: Number(catCount) || undefined })}>
-                NASTEPNA RUNDA
+                NASTEPNA RUNDA (KLASYCZNA)
+              </button>
+              <button className="btn btn-green btn-lg" onClick={() => { if (confirm("Zakonczyc runde 1 i rozpoczac WALKE O TERYTORIUM? Punkty zamienia sie w pola.")) act("startTerritory", { size: Number(form?.boardSize) || 4 }); }}>
+                ▶ WALKA O TERYTORIUM
               </button>
               <button className="btn btn-mag" onClick={() => act("endGame")}>ZAKONCZ GRE</button>
             </div>
@@ -456,6 +483,236 @@ export default function GameControl({ secret, code, categories, questions }) {
           {state.status === "ended" && <p className="display" style={{ color: "var(--amber)" }}>GRA ZAKONCZONA</p>}
         </div>
       )}
+
+      {/* ===================== RUNDA 2: TERYTORIUM ===================== */}
+      {phase === "territory" && view.territory && (() => {
+        const t = view.territory;
+        const cats = view.categories || [];
+        const catMap = {}; for (const c of cats) catMap[c.id] = c;
+        const PC = ["#23e0c8", "#ff2d78", "#ffd23f", "#7c5cff", "#3fa7ff", "#ff7a2d", "#00e676", "#e0e0e0"];
+        const colorOf = { aliens: "var(--green)" };
+        players.forEach((p, i) => { colorOf[p.id] = PC[i % PC.length]; });
+        const neigh = (idx) => {
+          const r = Math.floor(idx / t.size), c = idx % t.size, out = [];
+          if (r > 0) out.push(idx - t.size); if (r < t.size - 1) out.push(idx + t.size);
+          if (c > 0) out.push(idx - 1); if (c < t.size - 1) out.push(idx + 1);
+          return out;
+        };
+        const ownerCount = {};
+        for (const c of t.cells) if (c.owner !== "aliens") ownerCount[c.owner] = (ownerCount[c.owner] || 0) + 1;
+        const playersWithLand = players.filter((p) => ownerCount[p.id] > 0);
+        const duel = t.duel;
+        const canStartDuel = (idx) => atkId && t.cells[idx].owner !== atkId &&
+          neigh(idx).some((n) => t.cells[n].owner === atkId);
+
+        return (
+          <div className="panel">
+            <h3 className="display" style={{ color: "var(--green)", marginTop: 0 }}>WALKA O TERYTORIUM</h3>
+
+            {playersWithLand.length <= 2 && !duel && (
+              <div className="panel" style={{ borderColor: "var(--amber)", padding: 10, marginBottom: 10 }}>
+                <span className="mono" style={{ color: "var(--amber)" }}>Zostalo {playersWithLand.length} graczy z terytorium — mozesz przejsc do finalu.</span>
+              </div>
+            )}
+
+            {/* wybor atakujacego */}
+            <div className="field-row" style={{ marginBottom: 8 }}>
+              <span className="mono">Atakujacy:</span>
+              {players.map((p) => (
+                <button key={p.id} type="button" className={"chip" + (atkId === p.id ? " on" : "")}
+                  onClick={() => { setAtkId(p.id); setEditIdx(null); }}>{p.emoji} {p.name} ({ownerCount[p.id] || 0})</button>
+              ))}
+            </div>
+            <div className="field-row" style={{ marginBottom: 10 }}>
+              <span className="mono">Tryb pojedynku (gracz vs gracz):</span>
+              <button type="button" className={"chip" + (duelMode === "all" ? " on" : "")} onClick={() => setDuelMode("all")}>OBOJE</button>
+              <button type="button" className={"chip" + (duelMode === "buzzer" ? " on" : "")} onClick={() => setDuelMode("buzzer")}>BUZZER</button>
+            </div>
+            <div className="mono small muted" style={{ marginBottom: 8 }}>
+              Klik pole = atakuj (musi sasiadowac z terytorium atakujacego). Dwuklik = edytuj wlasciciela/kategorie.
+            </div>
+
+            {/* plansza */}
+            <div className="board" style={{ gridTemplateColumns: `repeat(${t.size}, 1fr)`, maxWidth: 520 }}>
+              {t.cells.map((c) => {
+                const col = colorOf[c.owner] || "var(--line)";
+                const attackable = canStartDuel(c.idx);
+                const emoji = c.owner === "aliens" ? "👽" : (players.find((p) => p.id === c.owner)?.emoji || "·");
+                return (
+                  <div key={c.idx}
+                    className={"cell" + (attackable ? " attackable" : "") + (editIdx === c.idx ? " sel" : "") + (duel && duel.fieldIdx === c.idx ? " target" : "")}
+                    style={{ borderColor: col }}
+                    onClick={() => { if (!duel && attackable) act("startDuel", { fieldIdx: c.idx, attackerId: atkId, mode: duelMode }); }}
+                    onDoubleClick={() => setEditIdx(c.idx)}>
+                    <span className="cell-own">{emoji}</span>
+                    <span className="cell-cat" style={{ color: catMap[c.categoryId]?.color }}>{catMap[c.categoryId]?.name}</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* edycja pola */}
+            {editIdx != null && t.cells[editIdx] && (
+              <div className="panel" style={{ padding: 12, marginTop: 12 }}>
+                <div className="mono" style={{ marginBottom: 6 }}>Edycja pola #{editIdx}</div>
+                <div className="field-row">
+                  <span className="mono">Wlasciciel:</span>
+                  <button className={"chip" + (t.cells[editIdx].owner === "aliens" ? " on" : "")} onClick={() => act("setFieldOwner", { idx: editIdx, owner: "aliens" })}>👽 Kosmici</button>
+                  {players.map((p) => (
+                    <button key={p.id} className={"chip" + (t.cells[editIdx].owner === p.id ? " on" : "")} onClick={() => act("setFieldOwner", { idx: editIdx, owner: p.id })}>{p.emoji} {p.name}</button>
+                  ))}
+                </div>
+                <div className="field-row" style={{ marginTop: 8 }}>
+                  <span className="mono">Kategoria:</span>
+                  {cats.filter((c) => !c.final).map((c) => (
+                    <button key={c.id} className={"chip" + (t.cells[editIdx].categoryId === c.id ? " on" : "")} onClick={() => act("setFieldCategory", { idx: editIdx, categoryId: c.id })}>{c.name}</button>
+                  ))}
+                </div>
+                <button className="btn btn-sm" style={{ marginTop: 8 }} onClick={() => setEditIdx(null)}>Zamknij edycje</button>
+              </div>
+            )}
+
+            {/* pojedynek w toku */}
+            {duel && (
+              <div className="panel" style={{ padding: 12, marginTop: 12, borderColor: "var(--amber)" }}>
+                <div className="display" style={{ color: "var(--amber)", fontSize: 18 }}>
+                  POJEDYNEK o pole #{duel.fieldIdx} · {catMap[t.cells[duel.fieldIdx]?.categoryId]?.name}
+                </div>
+                <div className="mono" style={{ margin: "6px 0" }}>
+                  {playerMap[duel.attackerId]?.emoji} {playerMap[duel.attackerId]?.name} (atak) vs{" "}
+                  {duel.defenderId === "aliens" ? "👽 Kosmici" : (playerMap[duel.defenderId]?.emoji + " " + playerMap[duel.defenderId]?.name)} · tryb: {duel.mode}
+                </div>
+
+                {duel.resolved ? (
+                  <div className="col">
+                    <div className="display" style={{ color: "var(--green)" }}>
+                      Zwyciezca: {duel.winner === "aliens" ? "👽 Kosmici" : (playerMap[duel.winner]?.emoji + " " + playerMap[duel.winner]?.name)}
+                    </div>
+                    <button className="btn btn-green" onClick={() => { act("clearDuel"); setAtkId(""); }}>OK — dalej</button>
+                  </div>
+                ) : (
+                  <>
+                    {/* reuzywamy standardowych przyciskow: odkryj odpowiedzi / buzzer / ocena */}
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "8px 0" }}>
+                      {duel.mode === "buzzer" && (
+                        <>
+                          {!state.buzzerOpen && !state.buzzerWinnerId && <button className="btn btn-mag btn-sm" onClick={() => act("openBuzzer")}>OTWORZ BUZZER</button>}
+                          <button className="btn btn-green btn-sm" onClick={() => act("acceptBuzz", {})} disabled={!buzz.length}>ZATWIERDZ PIERWSZEGO</button>
+                          {state.buzzerWinnerId && <button className="btn btn-amber btn-sm" onClick={() => act("duelPass")}>PRZEKAZ RYWALOWI</button>}
+                          <button className="btn btn-sm" onClick={() => act("clearBuzzer")}>RESET BUZZERA</button>
+                        </>
+                      )}
+                      <button className="btn btn-amber btn-sm" onClick={() => act("revealAnswers")} disabled={state.answersRevealed}>ODKRYJ ODPOWIEDZI</button>
+                    </div>
+
+                    {/* lista uprawnionych do oceny */}
+                    <div style={{ display: "grid", gap: 6 }}>
+                      {(state.eligibleIds || []).map((pid) => {
+                        const a = answers[pid];
+                        const isClosed = q?.type === "closed";
+                        return (
+                          <div key={pid} className="panel" style={{ padding: 8 }}>
+                            <span className="mono">{playerMap[pid]?.emoji} {playerMap[pid]?.name}: {a ? (isClosed ? (OPT_KEYS[q.options.findIndex((o) => o.id === a.optionId)] || "?") : ("„" + (a.text || "") + "")) : "—"}</span>
+                            {isClosed ? (
+                              <span className="mono small muted"> {a && q && a.optionId === q.correctOptionId ? "✓ dobrze" : a ? "✗ zle" : ""}</span>
+                            ) : (
+                              <span style={{ marginLeft: 8 }}>
+                                <button className="btn btn-green btn-sm" onClick={() => act("judgeAnswer", { pid, correct: true })}>OK</button>{" "}
+                                <button className="btn btn-mag btn-sm" onClick={() => act("judgeAnswer", { pid, correct: false })}>ZLE</button>
+                                {a?.judged === true && <span className="mono" style={{ color: "var(--green)" }}> uznane</span>}
+                                {a?.judged === false && <span className="mono" style={{ color: "var(--magenta)" }}> odrzucone</span>}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <button className="btn btn-green btn-lg" style={{ marginTop: 10 }} onClick={() => act("resolveDuel")}>ROZSTRZYGNIJ POJEDYNEK</button>
+                  </>
+                )}
+              </div>
+            )}
+
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 14 }}>
+              <button className="btn btn-green btn-lg" onClick={() => { if (confirm("Zakonczyc walke o terytorium i przejsc do FINALU (Szacowanie)? Punkty = liczba pol.")) act("startFinal"); }}>
+                ▶ PRZEJDZ DO FINALU
+              </button>
+              <button className="btn btn-mag" onClick={() => act("endGame")}>ZAKONCZ GRE</button>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ===================== RUNDA 3: FINAL (SZACOWANIE) ===================== */}
+      {phase === "final" && (() => {
+        const fin = view.final;
+        const estQuestions = (questions || []).filter((x) => x.categoryId === "cat_szacowanie");
+        const used = new Set(state.usedQuestionIds || []);
+        const finalists = (fin?.duelIds || []).map((id) => playerMap[id]).filter(Boolean);
+        return (
+          <div className="panel">
+            <h3 className="display" style={{ color: "var(--green)", marginTop: 0 }}>FINAL · SZACOWANIE</h3>
+            <div className="mono" style={{ marginBottom: 8 }}>
+              Finalisci: {finalists.map((p) => `${p.emoji} ${p.name}`).join(" vs ") || "—"} ·
+              Szansa manipulacji: <b style={{ color: "var(--magenta)" }}>{Math.round((fin?.manipChance || 0) * 100)}%</b>
+            </div>
+
+            {(!fin?.questionId || fin?.revealed) && (
+              <div style={{ marginBottom: 12 }}>
+                <div className="field-row" style={{ marginBottom: 8 }}>
+                  <span className="mono">Typ (override):</span>
+                  <button className={"chip" + (estType === "" ? " on" : "")} onClick={() => setEstType("")}>z pytania</button>
+                  <button className={"chip" + (estType === "integer" ? " on" : "")} onClick={() => setEstType("integer")}>integer</button>
+                  <button className={"chip" + (estType === "float" ? " on" : "")} onClick={() => setEstType("float")}>float</button>
+                  <button className={"chip" + (estType === "time" ? " on" : "")} onClick={() => setEstType("time")}>time</button>
+                </div>
+                <div style={{ display: "grid", gap: 6 }}>
+                  {estQuestions.length === 0 && <span className="mono muted">Brak pytan w kategorii SZACOWANIE (zaseeduj baze).</span>}
+                  {estQuestions.map((qq) => (
+                    <div key={qq.id} className="panel" style={{ display: "flex", gap: 10, alignItems: "center", padding: 10, opacity: used.has(qq.id) ? 0.5 : 1 }}>
+                      <span className="mono" style={{ flex: 1 }}>[{qq.estimateType}] {qq.text} {used.has(qq.id) ? "· (uzyte)" : ""}</span>
+                      <button className="btn btn-green btn-sm" disabled={used.has(qq.id)}
+                        onClick={() => act("presentEstimate", { questionId: qq.id, estimateType: estType || undefined })}>POKAZ</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {fin?.questionId && !fin?.revealed && (
+              <div className="panel" style={{ padding: 12 }}>
+                <div className="mono">Zebrane szacunki:</div>
+                <div style={{ display: "grid", gap: 4, margin: "6px 0" }}>
+                  {(fin.duelIds || []).map((pid) => (
+                    <span key={pid} className="mono">
+                      {playerMap[pid]?.emoji} {playerMap[pid]?.name}: {answeredIds.includes(pid) ? "✓ wyslal" : "… czeka"}
+                    </span>
+                  ))}
+                </div>
+                {countdown && <div className="mono" style={{ color: "var(--cyan)" }}>{Math.ceil(countdown.left)}s</div>}
+                <button className="btn btn-amber btn-lg" style={{ marginTop: 8 }} onClick={() => act("revealEstimate")}>
+                  UJAWNIJ + LOSUJ MANIPULACJE
+                </button>
+              </div>
+            )}
+
+            {fin?.revealed && (
+              <div className="panel" style={{ padding: 12 }}>
+                <div className="mono">Poprawna{fin.manipulated ? " (zmanipulowana o 10%)" : ""}: <b style={{ color: "var(--amber)" }}>{fin.manipValue}</b></div>
+                <div className="mono" style={{ marginTop: 4 }}>
+                  Zwyciezca rundy: {fin.winnerId ? `${playerMap[fin.winnerId]?.emoji} ${playerMap[fin.winnerId]?.name}` : "—"}
+                </div>
+              </div>
+            )}
+
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 14 }}>
+              <button className="btn btn-mag btn-lg" onClick={() => { if (confirm("Zakonczyc final i pokazac tablice wynikow?")) act("endGame"); }}>
+                ZAKONCZ I POKAZ WYNIKI
+              </button>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ZARZADZANIE GRACZAMI */}
       <div className="panel">

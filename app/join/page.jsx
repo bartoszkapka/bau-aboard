@@ -3,8 +3,6 @@ import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 
-const EMOJIS = ["🎮","👾","🕹️","🤖","👽","💀","🦄","🐉","🔥","⚡","🌟","💎","🎲","🎯","🚀","🛸","🦊","🐙","🦖","🍕","🍄","🎸","🎧","📼","💾","🧠","👑","🃏"];
-
 function Inner() {
   const router = useRouter();
   const sp = useSearchParams();
@@ -119,16 +117,9 @@ function Inner() {
                   maxLength={8}
                   onChange={(e) => setEmoji(e.target.value)}
                   placeholder="np. 🐢"
-                  style={{ width: 90, textAlign: "center", fontSize: 28 }}
+                  style={{ width: 100, textAlign: "center", fontSize: 30 }}
                 />
-                <span className="mono small muted">wpisz lub wklej dowolne emoji, albo wybierz ponizej</span>
-              </div>
-              <div className="emoji-grid" style={{ marginTop: 8 }}>
-                {EMOJIS.map((em) => (
-                  <button key={em} type="button" className={emoji === em ? "sel" : ""} onClick={() => setEmoji(em)}>
-                    {em}
-                  </button>
-                ))}
+                <span className="mono small muted">wpisz lub wklej dowolne emoji</span>
               </div>
             </div>
           </>

@@ -6,12 +6,22 @@ import { api } from "@/lib/api";
 
 const KEYS = ["A", "B", "C", "D"];
 
+function fmtVal(type, v) {
+  if (v == null || isNaN(v)) return "—";
+  if (type === "time") {
+    const m = ((Math.round(v) % 1440) + 1440) % 1440;
+    return String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
+  }
+  return String(v);
+}
+
 export default function PlayPage() {
   const { code } = useParams();
   const router = useRouter();
   const [pid, setPid] = useState(null);
-  const [picked, setPicked] = useState(null); // optionId
+  const [picked, setPicked] = useState(null);
   const [openText, setOpenText] = useState("");
+  const [estInput, setEstInput] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [buzzPos, setBuzzPos] = useState(null);
   const [toast, setToast] = useState("");
@@ -34,64 +44,66 @@ export default function PlayPage() {
 
   const state = view?.state;
   const q = view?.question;
+  const fin = view?.final;
 
-  // reset lokalnego stanu przy nowym pytaniu
   useEffect(() => {
-    setPicked(null);
-    setOpenText("");
-    setSubmitted(false);
-    setBuzzPos(null);
+    setPicked(null); setOpenText(""); setEstInput(""); setSubmitted(false); setBuzzPos(null);
   }, [q?.id]);
 
-  const eligible =
-    state && (state.answerMode === "all" || (state.eligibleIds || []).includes(pid));
+  const eligible = state && (state.answerMode === "all" || (state.eligibleIds || []).includes(pid));
   const buzzerActive = state?.answerMode === "buzzer" && state?.buzzerOpen;
   const iWonBuzz = state?.buzzerWinnerId === pid;
 
-  function flash(msg) {
-    setToast(msg);
-    setTimeout(() => setToast(""), 1800);
-  }
+  // Blokada przewijania, gdy buzzer aktywny (by nie przewinac strony przy nacisnieciu)
+  useEffect(() => {
+    const lock = !!buzzerActive && !iWonBuzz;
+    const el = document.documentElement, b = document.body;
+    if (lock) { el.classList.add("lock"); b.classList.add("lock"); }
+    else { el.classList.remove("lock"); b.classList.remove("lock"); }
+    return () => { el.classList.remove("lock"); b.classList.remove("lock"); };
+  }, [buzzerActive, iWonBuzz]);
+
+  function flash(msg) { setToast(msg); setTimeout(() => setToast(""), 1800); }
 
   async function pickOption(optId) {
     if (submitted || !state?.answersRevealed || !eligible) return;
     setPicked(optId);
-    try {
-      await api.post(`/api/game/${code}/answer`, { pid, optionId: optId });
-      setSubmitted(true);
-      flash("Odpowiedz wyslana ✓");
-    } catch (e) {
-      flash(e.message);
-      setPicked(null);
-    }
+    try { await api.post(`/api/game/${code}/answer`, { pid, optionId: optId }); setSubmitted(true); flash("Odpowiedz wyslana ✓"); }
+    catch (e) { flash(e.message); setPicked(null); }
   }
-
   async function submitOpen() {
     if (submitted || !openText.trim()) return;
-    try {
-      await api.post(`/api/game/${code}/answer`, { pid, text: openText.trim() });
-      setSubmitted(true);
-      flash("Odpowiedz wyslana ✓");
-    } catch (e) {
-      flash(e.message);
-    }
+    try { await api.post(`/api/game/${code}/answer`, { pid, text: openText.trim() }); setSubmitted(true); flash("Odpowiedz wyslana ✓"); }
+    catch (e) { flash(e.message); }
   }
-
+  async function submitEstimate() {
+    if (submitted) return;
+    let value;
+    if (fin?.estimateType === "time") {
+      if (!estInput) return flash("Podaj godzine");
+      const [h, m] = estInput.split(":").map(Number);
+      value = (h || 0) * 60 + (m || 0);
+    } else {
+      if (estInput === "") return flash("Podaj wartosc");
+      value = fin?.estimateType === "integer" ? parseInt(estInput, 10) : parseFloat(estInput);
+      if (isNaN(value)) return flash("Niepoprawna liczba");
+    }
+    try { await api.post(`/api/game/${code}/answer`, { pid, value }); setSubmitted(true); flash("Szacunek wyslany ✓"); }
+    catch (e) { flash(e.message); }
+  }
   async function buzz() {
-    try {
-      const r = await api.post(`/api/game/${code}/buzz`, { pid });
-      setBuzzPos(r.position);
-    } catch (e) {
-      flash(e.message);
-    }
+    try { const r = await api.post(`/api/game/${code}/buzz`, { pid }); setBuzzPos(r.position); }
+    catch (e) { flash(e.message); }
   }
 
-  if (error && !view)
-    return <div className="screen center"><div className="panel">⚠ {error}</div></div>;
+  if (error && !view) return <div className="screen center"><div className="panel">⚠ {error}</div></div>;
   if (!view) return <div className="screen center"><div className="display ca">LADOWANIE...</div></div>;
 
   const myAnswer = view.answers?.[pid];
   const correctId = q?.correctOptionId;
+  const inDuel = state?.phase === "territory" && !!q;
+  const showQ = (state?.phase === "question" || state?.phase === "reveal" || inDuel) && q;
+  const amFinalist = fin && (fin.duelIds || []).includes(pid);
 
   return (
     <div className="screen">
@@ -102,7 +114,7 @@ export default function PlayPage() {
             <span style={{ fontSize: 26 }}>{me?.emoji}</span>
             <div>
               <div style={{ fontSize: 20, lineHeight: 1 }}>{me?.name || "..."}</div>
-              <div className="mono small muted">#{code}</div>
+              <div className="mono small muted">#{code} · runda {state?.round || 0}</div>
             </div>
           </div>
           <div style={{ textAlign: "right" }}>
@@ -111,17 +123,13 @@ export default function PlayPage() {
           </div>
         </div>
 
-        {/* TIMER */}
-        {cd && state?.phase === "question" && (
+        {cd && (state?.phase === "question" || inDuel || state?.phase === "final") && (
           <div>
             <div className="timer-bar"><div className="timer-fill" style={{ width: `${cd.pct * 100}%` }} /></div>
-            <div className="mono small muted" style={{ textAlign: "center", marginTop: 4 }}>
-              {Math.ceil(cd.left)}s
-            </div>
+            <div className="mono small muted" style={{ textAlign: "center", marginTop: 4 }}>{Math.ceil(cd.left)}s</div>
           </div>
         )}
 
-        {/* TRESC */}
         {state?.phase === "lobby" && (
           <div className="panel center" style={{ minHeight: "50vh" }}>
             <div className="display ca" style={{ fontSize: 30 }}>POCZEKALNIA</div>
@@ -142,12 +150,26 @@ export default function PlayPage() {
           </div>
         )}
 
-        {(state?.phase === "question" || state?.phase === "reveal") && q && (
-          <div className="panel col">
-            <div className="label">PYTANIE</div>
-            <div className="ca" style={{ fontSize: 24, lineHeight: 1.15 }}>{q.text}</div>
+        {/* TERYTORIUM — brak aktywnego pojedynku */}
+        {state?.phase === "territory" && !q && (
+          <div className="panel center" style={{ minHeight: "40vh" }}>
+            <div className="display ca" style={{ fontSize: 26, color: "var(--green)" }}>WALKA O TERYTORIUM</div>
+            <p className="muted mono">Mapa statku UFO jest na ekranie TV. Czekaj na swoj pojedynek...</p>
+            <div className="pill" style={{ marginTop: 10 }}>Twoje pola: {view.territory ? view.territory.cells.filter((c) => c.owner === pid).length : 0}</div>
+          </div>
+        )}
 
-            {q.media && (
+        {/* PYTANIE / POJEDYNEK */}
+        {showQ && (
+          <div className="panel col">
+            <div className="label">{inDuel ? "POJEDYNEK" : "PYTANIE"}</div>
+            <div className="ca" style={{ fontSize: 24, lineHeight: 1.15 }}>
+              {state.answerMode === "buzzer" && !state.buzzerOpen && !state.buzzerWinnerId
+                ? "Przygotuj sie — buzzer za chwile..."
+                : q.text}
+            </div>
+
+            {!(state.answerMode === "buzzer" && !state.buzzerOpen && !state.buzzerWinnerId) && q.media && (
               <div className="media-box" style={{ textAlign: "center" }}>
                 {q.media.type === "image" && <img src={q.media.url} alt="" />}
                 {q.media.type === "video" && <video src={q.media.url} controls />}
@@ -155,9 +177,8 @@ export default function PlayPage() {
               </div>
             )}
 
-            {/* BUZZER */}
             {buzzerActive && !iWonBuzz && (
-              <div className="center" style={{ minHeight: 220 }}>
+              <div className="center" style={{ minHeight: 260 }}>
                 <button className="buzzer" onClick={buzz}>BUZZ!</button>
                 {buzzPos && <div className="mono" style={{ marginTop: 14 }}>Twoja kolejnosc: {buzzPos}</div>}
               </div>
@@ -170,38 +191,29 @@ export default function PlayPage() {
               </div>
             )}
 
-            {/* NIE UPRAWNIONY */}
-            {!eligible && !buzzerActive && state.phase === "question" && (
+            {!eligible && !buzzerActive && (
               <div className="center" style={{ minHeight: 120 }}>
                 <div className="mono muted">Teraz odpowiada ktos inny...</div>
               </div>
             )}
 
-            {/* ODPOWIEDZI ZAMKNIETE */}
             {q.type === "closed" && state.answersRevealed && (eligible || state.phase === "reveal") && (
               <div className="answers-grid">
                 {q.options.map((o, i) => {
                   const isCorrect = state.correctRevealed && correctId === o.id;
                   const isMine = (picked || myAnswer?.optionId) === o.id;
-                  const cls = [
-                    "answer",
-                    `opt-${i}`,
-                    isMine ? "picked" : "",
-                    isCorrect ? "correct" : "",
-                    state.correctRevealed && !isCorrect ? "wrong" : "",
-                  ].join(" ");
+                  const cls = ["answer", `opt-${i}`, isMine ? "picked" : "", isCorrect ? "correct" : "",
+                    state.correctRevealed && !isCorrect ? "wrong" : ""].join(" ");
                   return (
                     <div key={o.id} className={cls} onClick={() => pickOption(o.id)}>
-                      <span className="key">{KEYS[i]}</span>
-                      <span className="txt">{o.text}</span>
+                      <span className="key">{KEYS[i]}</span><span className="txt">{o.text}</span>
                     </div>
                   );
                 })}
               </div>
             )}
 
-            {/* PYTANIE OTWARTE */}
-            {q.type === "open" && eligible && state.answersRevealed && state.phase === "question" && (
+            {q.type === "open" && eligible && state.answersRevealed && !state.correctRevealed && (
               <div className="col">
                 {submitted ? (
                   <div className="mono" style={{ color: "var(--green)" }}>✓ Wyslano: {openText}</div>
@@ -214,20 +226,57 @@ export default function PlayPage() {
               </div>
             )}
 
-            {/* WYNIK PO UJAWNIENIU */}
             {state.correctRevealed && (
               <div className="panel" style={{ background: "rgba(0,0,0,0.4)" }}>
                 {q.type === "open" ? (
-                  <div className="mono">Poprawna odpowiedz: <b style={{ color: "var(--green)" }}>{q.correctAnswer}</b></div>
+                  <div className="mono">Poprawna: <b style={{ color: "var(--green)" }}>{q.correctAnswer}</b></div>
                 ) : (
                   <div className="mono">
                     {myAnswer?.optionId === correctId
                       ? <span style={{ color: "var(--green)" }}>✓ Dobrze!</span>
-                      : myAnswer
-                        ? <span style={{ color: "var(--magenta)" }}>✗ Niestety...</span>
+                      : myAnswer ? <span style={{ color: "var(--magenta)" }}>✗ Niestety...</span>
                         : <span className="muted">Brak Twojej odpowiedzi</span>}
                   </div>
                 )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* RUNDA FINALOWA — SZACOWANIE */}
+        {state?.phase === "final" && (
+          <div className="panel col">
+            <div className="label">FINAL · SZACOWANIE</div>
+            {q ? <div className="ca" style={{ fontSize: 22, lineHeight: 1.15 }}>{q.text}</div>
+              : <p className="muted mono">Czekaj na pytanie finalowe...</p>}
+            {q?.unit && <div className="mono small muted">jednostka: {q.unit}</div>}
+
+            {!amFinalist && q && <div className="mono muted center" style={{ minHeight: 80 }}>Jestes obserwatorem finalu.</div>}
+
+            {amFinalist && q && !fin?.revealed && (
+              submitted ? (
+                <div className="mono" style={{ color: "var(--green)" }}>✓ Twoj szacunek zostal wyslany. Czekaj na ujawnienie.</div>
+              ) : (
+                <div className="col">
+                  {fin?.estimateType === "time" ? (
+                    <input type="time" value={estInput} onChange={(e) => setEstInput(e.target.value)} />
+                  ) : (
+                    <input type="number" step={fin?.estimateType === "float" ? "any" : "1"} inputMode="decimal"
+                      value={estInput} onChange={(e) => setEstInput(e.target.value)} placeholder="Twoj szacunek" />
+                  )}
+                  <button className="btn btn-cyan btn-block" onClick={submitEstimate}>Wyslij szacunek</button>
+                </div>
+              )
+            )}
+
+            {fin?.revealed && (
+              <div className="panel" style={{ background: "rgba(0,0,0,0.4)" }}>
+                <div className="mono">Poprawna: <b style={{ color: "var(--amber)" }}>{fmtVal(fin.estimateType, fin.manipValue)}</b>
+                  {fin.manipulated && <span style={{ color: "var(--magenta)" }}> (Kosmiczna Manipulacja!)</span>}</div>
+                {amFinalist && <div className="mono" style={{ marginTop: 6 }}>
+                  Twoj szacunek: {fmtVal(fin.estimateType, fin.estimates?.[pid])}{" "}
+                  {fin.winnerId === pid ? <span style={{ color: "var(--green)" }}>— wygrana!</span> : <span className="muted">— rywal byl blizej</span>}
+                </div>}
               </div>
             )}
           </div>

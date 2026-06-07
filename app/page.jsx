@@ -17,7 +17,7 @@ export default function Home() {
       <div className="wrap col" style={{ alignItems: "center", maxWidth: 720 }}>
         <div className="tag" style={{ marginBottom: 8 }}>◉ REC · CH-03 · SP</div>
         <h1 className="display ca-strong" style={{ fontSize: "clamp(44px,12vw,110px)" }}>
-          VHS<br />QUIZ
+          BAU<br />ABOARD
         </h1>
         <p className="muted mono" style={{ letterSpacing: "0.2em", marginTop: 4 }}>
           PLAY · REWIND · SCORE

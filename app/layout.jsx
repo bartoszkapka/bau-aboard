@@ -1,7 +1,7 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "VHS QUIZ",
+  title: "BAU ABOARD",
   description: "Retro quiz na impreze — host, uczestnicy i tryb TV",
 };
 
